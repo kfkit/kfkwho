@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+
+# Test stand output
+/test/e2e/.out/
+
+# Editors
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+*~
+*.swp
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Python helpers
+__pycache__/
+*.py[cod]
+.venv/
+
+# env files
+.env
+.env.*
