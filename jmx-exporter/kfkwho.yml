@@ -1,0 +1,21 @@
+# Prometheus JMX Exporter rules for kfkwho: a first, minimal version that
+# exports the request counter of every access series. The full rules are a
+# separate issue.
+#
+# The MBean tag order is fixed (see AccessMetrics); these patterns depend on
+# it. The JmxReporter quotes a value that is not valid in an ObjectName, a
+# principal such as User:alice for one, hence the optional quotes.
+lowercaseOutputName: true
+includeObjectNames: ["kfkwho:*"]
+rules:
+  - pattern: 'kfkwho<type=access, principal="?([^,]*?)"?, client-id="?([^,]*?)"?, resource-type=([^,]+), resource="?([^,]*?)"?, operation=([^,]+), result=([^,>]+)><>request-total'
+    name: kfkwho_access_requests_total
+    type: COUNTER
+    help: Requests authorized, per principal, client id, resource, operation and verdict
+    labels:
+      principal: "$1"
+      client_id: "$2"
+      resource_type: "$3"
+      resource: "$4"
+      operation: "$5"
+      result: "$6"
