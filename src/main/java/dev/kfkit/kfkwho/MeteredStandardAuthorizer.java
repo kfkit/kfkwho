@@ -18,6 +18,7 @@ package dev.kfkit.kfkwho;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +49,9 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * <p>Configure with {@code authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer}.
  * A series that saw no request for {@value #TTL_SECONDS_CONFIG} (default
  * 600) disappears; past {@value #MAX_SERIES_CONFIG} series (default 10000),
- * new ones are folded into an overflow series.
+ * new ones are folded into an overflow series. Series are created and
+ * expired on one background thread, {@code kfkwho-series}, never on the
+ * request thread.
  */
 public class MeteredStandardAuthorizer extends StandardAuthorizer {
 
@@ -59,16 +62,24 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
     private static final long MAX_EXPIRY_PERIOD_SECONDS = 30;
 
     private final Time time;
+    /** Where new series are created; null for the background thread. */
+    private final Executor creator;
     private Metrics metrics;
     private AccessMetrics access;
-    private ScheduledExecutorService expiry;
+    private ScheduledExecutorService background;
 
     public MeteredStandardAuthorizer() {
         this(Time.SYSTEM);
     }
 
     MeteredStandardAuthorizer(Time time) {
+        this(time, null);
+    }
+
+    /** Tests pass their own creator to decide when series appear. */
+    MeteredStandardAuthorizer(Time time, Executor creator) {
         this.time = time;
+        this.creator = creator;
     }
 
     @Override
@@ -79,15 +90,16 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
         // Metrics registers its own count of metrics; it is not ours to publish.
         metrics.removeMetric(metrics.metricName("count", "kafka-metrics-count"));
         long ttlSeconds = longConfig(configs, TTL_SECONDS_CONFIG, AccessMetrics.DEFAULT_TTL_SECONDS);
-        access = new AccessMetrics(metrics, ttlSeconds,
-                (int) longConfig(configs, MAX_SERIES_CONFIG, AccessMetrics.DEFAULT_MAX_SERIES));
-        expiry = Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "kfkwho-expiry");
+        background = Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "kfkwho-series");
             thread.setDaemon(true);
             return thread;
         });
+        access = new AccessMetrics(metrics, ttlSeconds,
+                (int) longConfig(configs, MAX_SERIES_CONFIG, AccessMetrics.DEFAULT_MAX_SERIES),
+                creator != null ? creator : background);
         long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
-        expiry.scheduleAtFixedRate(() -> {
+        background.scheduleAtFixedRate(() -> {
             try {
                 expireIdleSeries();
             } catch (RuntimeException e) {
@@ -96,7 +108,7 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
         }, period, period, TimeUnit.SECONDS);
     }
 
-    /** Runs on the expiry thread; package-private so tests can drive it with their own clock. */
+    /** Runs on the background thread; package-private so tests can drive it with their own clock. */
     void expireIdleSeries() {
         access.expire();
     }
@@ -113,8 +125,11 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
         try {
             super.close();
         } finally {
-            if (expiry != null) {
-                expiry.shutdownNow();
+            if (access != null) {
+                access.close();
+            }
+            if (background != null) {
+                background.shutdownNow();
             }
             if (metrics != null) {
                 metrics.close();

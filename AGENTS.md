@@ -53,9 +53,10 @@ mechanism applied to other operations. Read every issue in that light. The map:
   before `authorize`.
 - **The hot path is the hot path.** `authorize()` runs for every topic of
   every Fetch and Produce. One map lookup per action, no allocation beyond the
-  key, the parent's call first. Measure with the JMH benchmark when touching it.
-- **The CPU budget.** Under 1 µs added per action in the steady state, no
-  allocation per call, under 2% broker CPU under load. Every PR touching
+  key copy when a series is created, the parent's call first. Measure with the JMH benchmark when touching it.
+- **The CPU budget.** Under 1 µs added per action in the steady state and
+  under 3 µs on the request thread on first sight of a key, no allocation
+  per call, under 2% broker CPU under load. Every PR touching
   `authorize()` quotes the JMH numbers (`./gradlew jmh`, `docs/performance.md`).
 - **Fixed tag order in MBean names.** Exporter rules depend on it; changing
   the order is a breaking change and bumps the major version.

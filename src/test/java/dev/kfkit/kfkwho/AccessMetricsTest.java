@@ -36,6 +36,7 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.metadata.authorizer.StandardAuthorizer;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -53,7 +54,8 @@ class AccessMetricsTest {
             + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
 
     private final Metrics pluginMetrics = new Metrics();
-    private final MeteredStandardAuthorizer authorizer = new MeteredStandardAuthorizer();
+    // Series are created on the request thread here; SeriesCreationTest covers the background thread.
+    private final MeteredStandardAuthorizer authorizer = new MeteredStandardAuthorizer(Time.SYSTEM, Runnable::run);
 
     @BeforeEach
     void start() {
