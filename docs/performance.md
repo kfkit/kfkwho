@@ -30,7 +30,9 @@ difference is what kfkwho costs.
 
 ## Results
 
-One run, 2026-10-05: 3 warm-up and 5 measured iterations of 2 s, one fork.
+One run, 2026-10-05, with this change: 3 warm-up and 5 measured iterations
+of 2 s, one fork. The run before it, on `main` at b9e3130, on the same
+machine, is in brackets.
 
 - Machine: cloud VM, 4 vCPU Intel Xeon @ 2.80 GHz, 15 GiB RAM, Linux 6.18.
 - JDK: Temurin 17.0.20.1+1 (the Gradle toolchain), default JVM flags.
@@ -40,54 +42,60 @@ Single thread, time per call (lower is better):
 
 | Scenario | Parent | Metered | Added | Allocation, parent → metered |
 |---|---:|---:|---:|---:|
-| Steady state | 362 ± 32 ns | 520 ± 59 ns | **158 ns** | 624 → 664 B/op (+40) |
-| First sight | 427 ± 78 ns | 46 220 ± 29 680 ns | **≈ 46 µs** | 728 → 16 282 B/op |
-| First sight, cap reached | 427 ± 78 ns | 635 ± 95 ns | **207 ns** | 728 → 768 B/op (+40) |
+| Steady state | 338 ± 53 ns | 525 ± 32 ns | **187 ns** (129) | 624 → 624 B/op, +0 (+40) |
+| First sight | 349 ± 35 ns | 1 495 ± 1 612 ns | **≈ 1.1 µs** (≈ 41 µs) | 728 → 1 493 B/op (18 490) |
+| First sight, cap reached | 349 ± 35 ns | 610 ± 48 ns | **261 ns** (197) | 728 → 728 B/op, +0 (+40) |
 
 Steady state from several threads, total throughput (higher is better):
 
 | Threads | Parent | Metered | Metered / parent |
 |---:|---:|---:|---:|
-| 1 | 2.70 ± 0.23 ops/µs | 2.02 ± 0.20 ops/µs | 0.75 |
-| 4 | 1.39 ± 0.50 ops/µs | 1.28 ± 0.68 ops/µs | 0.92 |
-| 16 | 1.86 ± 0.79 ops/µs | 1.46 ± 0.73 ops/µs | 0.78 |
+| 1 | 3.03 ± 0.44 ops/µs | 1.89 ± 0.16 ops/µs | 0.62 (0.73) |
+| 4 | 1.85 ± 0.05 ops/µs | 1.52 ± 0.10 ops/µs | 0.82 (0.85) |
+| 16 | 2.40 ± 0.26 ops/µs | 1.59 ± 0.11 ops/µs | 0.66 (0.82) |
+
+The steady-state difference between the two runs is within their error
+bars. Run on its own (`java -jar build/libs/*-jmh.jar
+'AuthorizeBenchmark\.(metered|parent)$' -prof gc`), the same build measured
+459 ± 56 ns against the parent's 337 ± 53 ns: 122 ns added, as before.
 
 ## Against the budget
 
-The budget: under 1 µs added per action in the steady state, under 3 µs on
-first sight of a key, no allocation per call in the steady state, no lock
-contention at 16 threads.
+The budget, the same as in `AGENTS.md`: under 1 µs added per action in the
+steady state and under 3 µs on the request thread on first sight of a key,
+no allocation per call, under 2% broker CPU under load.
 
-- **Steady state, 158 ns added: within budget.**
-- **First sight, about 46 µs: over budget, by an order of magnitude.** The
-  time is creating the series: a `Sensor` with three metrics, each of which
-  makes the `JmxReporter` unregister and register the MBean again. It is paid
-  once per series per TTL (600 s by default), not per request, but on the
-  request thread. Once the cap is reached, a new key costs 207 ns.
-- **Allocation, 40 B/op in the steady state: over budget.** It is the lookup
-  key, a record of six references, built on every call to look up the series.
-  Escape analysis does not remove it.
+- **Steady state, 187 ns added: within budget.**
+- **Allocation, 0 B/op added: within budget.** The lookup key is a mutable
+  per-thread object, copied only when a series is created. (A plain class
+  allocated per call measured 0 B/op too, scalar-replaced, as the record
+  before it was not; the per-thread key does not depend on escape analysis.)
+- **First sight, about 1.1 µs on the request thread: within budget.** The
+  request thread no longer creates the series: it leaves a pending series
+  that counts what arrives until the series exists, and the background
+  thread `kfkwho-series` creates it, at about 40 µs each (a `Sensor` with
+  three metrics, each of which makes the `JmxReporter` register the MBean
+  again). The CPU is spent all the same, on that thread instead.
+- **What the benchmark's churn does to the series.** It asks for a new topic
+  on every call, about a million per iteration. The background thread
+  creates 20 000 to 30 000 series a second, so at most
+  `AccessMetrics.MAX_PENDING` (1024) wait at a time and the rest, about 95%
+  in this run, are counted under `__other__` and in `series-overflow-total`.
+  The figure above is the mean over both paths. A broker does not see a
+  million new keys in two seconds; a burst of up to 1024 is counted in full.
 - **Contention: not measurable here, and the parent does not scale either.**
   On 4 vCPUs neither the parent nor the metered authorizer gets faster with
   more threads; the parent records its own authorizer metrics into one
-  `Sensor`, which is `synchronized`. The metered throughput stays at 0.75–0.92
-  of the parent's at every thread count, so kfkwho adds no contention of its
-  own that this machine can show, while its `Sensor.record` is just as
-  `synchronized` per series. A machine with 16 or more cores would answer
-  this properly.
+  `Sensor`, which is `synchronized`, and so is ours, per series. The ratios
+  move between runs by more than the change could explain. A machine with 16
+  or more cores would answer this properly.
 
-What to change, in the order they would pay off:
+What is left to change, if a measurement asks for it:
 
-1. **Create series off the request thread.** On first sight, record into the
-   `__other__` series (or a small pending counter) and hand the key to the
-   expiry thread, which creates the sensor; the next request finds it. That
-   takes first sight to the cost of the capped path, about 200 ns, at the
-   price of the first request of a series being counted under `__other__`.
-2. **Look up without allocating.** A per-thread mutable lookup key, copied
-   into an immutable one only when a series is created, or a two-level map
-   (principal and client id, then resource, operation and verdict) whose
-   inner lookup needs no new object.
-3. **Counters without a lock**, if a many-core run shows contention: a
+1. **Cheaper creation.** Registering the MBean once per series instead of
+   once per metric would cut the background thread's cost and let more of
+   a burst get its own series.
+2. **Counters without a lock**, if a many-core run shows contention: a
    `LongAdder` per series read by a `Measurable` instead of a `Sensor`
    with stats, at the cost of computing the rate ourselves.
 
