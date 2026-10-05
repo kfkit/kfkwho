@@ -16,6 +16,7 @@
 package dev.kfkit.kfkwho;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.management.ManagementFactory;
@@ -49,7 +50,7 @@ class AccessMetricsTest {
     private static final ResourcePattern ORDERS = new ResourcePattern(ResourceType.TOPIC, "orders", PatternType.LITERAL);
     private static final List<Action> READ_ORDERS = List.of(new Action(AclOperation.READ, ORDERS, 1, true, true));
     private static final String ALICE_READS_ORDERS = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
-            + "resource-type=topic,resource=orders,operation=READ,result=ALLOWED";
+            + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
 
     private final Metrics pluginMetrics = new Metrics();
     private final MeteredStandardAuthorizer authorizer = new MeteredStandardAuthorizer();
@@ -93,7 +94,7 @@ class AccessMetricsTest {
                 authorizer.authorize(RequestContext.of("bob", "billing-2", ApiKeys.FETCH), READ_ORDERS));
 
         String bobDenied = "kfkwho:type=access,principal=\"User:bob\",client-id=billing-2,"
-                + "resource-type=topic,resource=orders,operation=READ,result=DENIED";
+                + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=DENIED";
         assertEquals(Set.of(ALICE_READS_ORDERS, bobDenied), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(bobDenied), "request-total"));
     }
@@ -114,12 +115,59 @@ class AccessMetricsTest {
     }
 
     @Test
+    void tellsAProduceFromAMetadataRequest() throws Exception {
+        List<Action> writeOrders = List.of(new Action(AclOperation.WRITE, ORDERS, 1, true, true));
+        List<Action> describeOrders = List.of(new Action(AclOperation.DESCRIBE, ORDERS, 1, true, true));
+
+        authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.METADATA), describeOrders);
+        authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
+        authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
+
+        String produced = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
+                + "resource-type=topic,resource=orders,operation=WRITE,api=PRODUCE,result=ALLOWED";
+        String described = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
+                + "resource-type=topic,resource=orders,operation=DESCRIBE,api=METADATA,result=ALLOWED";
+        assertEquals(Set.of(produced, described), accessBeans());
+        assertEquals(2.0, SERVER.getAttribute(new ObjectName(produced), "request-total"));
+        assertEquals(1.0, SERVER.getAttribute(new ObjectName(described), "request-total"));
+    }
+
+    @Test
+    void sameOperationFromAnotherApiIsASeparateSeries() throws Exception {
+        List<Action> writeOrders = List.of(new Action(AclOperation.WRITE, ORDERS, 1, true, true));
+
+        authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
+        authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.ADD_PARTITIONS_TO_TXN), writeOrders);
+
+        Set<String> apis = new TreeSet<>();
+        for (String name : accessBeans()) {
+            apis.add(new ObjectName(name).getKeyProperty("api"));
+        }
+        assertEquals(Set.of("PRODUCE", "ADD_PARTITIONS_TO_TXN"), apis);
+    }
+
+    @Test
+    void recordsAnUnknownApiKeyAsUnknown() throws Exception {
+        short unknown = Short.MAX_VALUE;
+        assertFalse(ApiKeys.hasId(unknown));
+
+        assertEquals(List.of(AuthorizationResult.ALLOWED),
+                authorizer.authorize(RequestContext.of("alice", "billing-1", unknown), READ_ORDERS));
+        assertEquals(List.of(AuthorizationResult.ALLOWED),
+                authorizer.authorize(RequestContext.of("alice", "billing-1", -1), READ_ORDERS));
+
+        assertEquals(Set.of(ALICE_READS_ORDERS.replace("api=FETCH", "api=UNKNOWN")), accessBeans());
+        assertEquals(2.0, SERVER.getAttribute(new ObjectName(ALICE_READS_ORDERS.replace("api=FETCH", "api=UNKNOWN")),
+                "request-total"));
+    }
+
+    @Test
     void quotesAClientIdThatWouldBreakTheName() throws Exception {
         String clientId = "a,b=c:d\"e*f?";
         authorizer.authorize(RequestContext.of("alice", clientId, ApiKeys.FETCH), READ_ORDERS);
 
         ObjectName name = new ObjectName("kfkwho:type=access,principal=\"User:alice\",client-id="
-                + ObjectName.quote(clientId) + ",resource-type=topic,resource=orders,operation=READ,result=ALLOWED");
+                + ObjectName.quote(clientId) + ",resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED");
         assertEquals(1.0, SERVER.getAttribute(name, "request-total"));
         assertEquals(clientId, ObjectName.unquote(name.getKeyProperty("client-id")));
     }
@@ -129,7 +177,7 @@ class AccessMetricsTest {
         authorizer.authorize(RequestContext.of("alice", "", ApiKeys.FETCH), READ_ORDERS);
 
         assertEquals(Set.of("kfkwho:type=access,principal=\"User:alice\",client-id=-,"
-                + "resource-type=topic,resource=orders,operation=READ,result=ALLOWED"), accessBeans());
+                + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED"), accessBeans());
     }
 
     @Test
@@ -159,7 +207,8 @@ class AccessMetricsTest {
         // The default cap, plus the series the rest is folded into.
         assertEquals(AccessMetrics.DEFAULT_MAX_SERIES + 1, accessBeans().size());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName("kfkwho:type=access,principal=__other__,"
-                + "client-id=__other__,resource-type=__other__,resource=__other__,operation=__other__,result=ALLOWED"),
+                + "client-id=__other__,resource-type=__other__,resource=__other__,operation=__other__,api=__other__,"
+                + "result=ALLOWED"),
                 "request-total"));
         // Past the cap the verdict is still the parent's.
         assertEquals(List.of(AuthorizationResult.DENIED),

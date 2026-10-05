@@ -7,7 +7,9 @@ after every review that found something these rules did not prevent.
 ## What this is
 
 `StandardAuthorizer` for Apache Kafka® plus JMX metrics on who accesses what,
-with JMX Exporter rules and a Grafana dashboard. The map:
+with JMX Exporter rules and a Grafana dashboard. The primary question is **who
+produces to which topic**; consumers come right after, and admins are the same
+mechanism applied to other operations. Read every issue in that light. The map:
 
 | Path | What |
 |---|---|
@@ -52,6 +54,9 @@ with JMX Exporter rules and a Grafana dashboard. The map:
 - **The hot path is the hot path.** `authorize()` runs for every topic of
   every Fetch and Produce. One map lookup per action, no allocation beyond the
   key, the parent's call first. Measure with the JMH benchmark when touching it.
+- **The CPU budget.** Under 1 µs added per action in the steady state, no
+  allocation per call, under 2% broker CPU under load. Every PR touching
+  `authorize()` quotes the JMH numbers (`./gradlew jmh`, `docs/performance.md`).
 - **Fixed tag order in MBean names.** Exporter rules depend on it; changing
   the order is a breaking change and bumps the major version.
 - **Apache-2.0 header on every source file.** Copied code carries its

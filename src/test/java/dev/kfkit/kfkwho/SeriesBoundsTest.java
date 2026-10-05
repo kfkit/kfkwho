@@ -47,7 +47,7 @@ class SeriesBoundsTest {
     private static final long TTL_SECONDS = 60;
     private static final String SELF = "kfkwho:type=authorizer";
     private static final String OTHER_ALLOWED = "kfkwho:type=access,principal=__other__,client-id=__other__,"
-            + "resource-type=__other__,resource=__other__,operation=__other__,result=ALLOWED";
+            + "resource-type=__other__,resource=__other__,operation=__other__,api=__other__,result=ALLOWED";
 
     private final ManualTime time = new ManualTime();
     private final Metrics pluginMetrics = new Metrics();
@@ -189,7 +189,7 @@ class SeriesBoundsTest {
 
     private static String topicSeries(String topic) {
         return "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,resource-type=topic,resource="
-                + topic + ",operation=READ,result=ALLOWED";
+                + topic + ",operation=READ,api=FETCH,result=ALLOWED";
     }
 
     private static Object self(String attribute) throws Exception {

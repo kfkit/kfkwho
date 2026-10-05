@@ -113,8 +113,9 @@ class BrokerIT {
         consume();
 
         awaitSamples(Duration.ofSeconds(30), List.of(
-                Map.of("client_id", PRODUCER, "resource", TOPIC, "operation", "WRITE", "result", "ALLOWED"),
-                Map.of("client_id", CONSUMER, "resource", TOPIC, "operation", "READ")));
+                Map.of("client_id", PRODUCER, "resource", TOPIC, "operation", "WRITE", "api", "PRODUCE",
+                        "result", "ALLOWED"),
+                Map.of("client_id", CONSUMER, "resource", TOPIC, "operation", "READ", "api", "FETCH")));
 
         String log = broker.getLogs();
         List<String> errors = log.lines()

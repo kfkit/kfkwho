@@ -31,6 +31,7 @@ import org.apache.kafka.common.metrics.stats.CumulativeCount;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.metrics.stats.Value;
 import org.apache.kafka.common.metrics.stats.WindowedCount;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.authorizer.Action;
@@ -38,9 +39,16 @@ import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 
 /**
- * One series per principal, client id, resource, operation and verdict:
- * {@code kfkwho:type=access,principal=,client-id=,resource-type=,resource=,operation=,result=}
+ * One series per principal, client id, resource, operation, request type and
+ * verdict:
+ * {@code kfkwho:type=access,principal=,client-id=,resource-type=,resource=,operation=,api=,result=}
  * with {@code request-total}, {@code request-rate} and {@code last-seen-ms}.
+ *
+ * <p>The {@code api} tag is the name of the request's API key
+ * ({@code PRODUCE}, {@code METADATA}, {@code INIT_PRODUCER_ID}, ...), which
+ * tells a producer that wrote from one that only described the topic. Its
+ * values are bounded by {@link ApiKeys}; an id the client library does not
+ * know is reported as {@value #UNKNOWN_API}.
  *
  * <p>The tag order is fixed; exporter rules depend on it. The
  * {@code JmxReporter} quotes values that are not valid in an ObjectName.
@@ -67,11 +75,14 @@ final class AccessMetrics {
     /** Every tag but the verdict of the series that takes what is over the cap. */
     static final String OTHER = "__other__";
 
+    /** The {@code api} of a request type that is not an {@link ApiKeys} id. */
+    static final String UNKNOWN_API = "UNKNOWN";
+
     static final long DEFAULT_TTL_SECONDS = 600;
     static final int DEFAULT_MAX_SERIES = 10_000;
 
     private record Key(KafkaPrincipal principal, String clientId, ResourceType resourceType, String resource,
-            AclOperation operation, AuthorizationResult result) {
+            AclOperation operation, int api, AuthorizationResult result) {
     }
 
     private final Metrics metrics;
@@ -108,7 +119,7 @@ final class AccessMetrics {
             Action action = actions.get(i);
             AuthorizationResult result = results.get(i);
             Key key = new Key(context.principal(), context.clientId(), action.resourcePattern().resourceType(),
-                    action.resourcePattern().name(), action.operation(), result);
+                    action.resourcePattern().name(), action.operation(), context.requestType(), result);
             Sensor sensor = sensors.get(key);
             if (sensor == null) {
                 if (sensors.size() >= maxSeries) {
@@ -151,7 +162,7 @@ final class AccessMetrics {
             synchronized (overflow) {
                 sensor = overflow.get(i);
                 if (sensor == null) {
-                    sensor = sensor(OTHER, OTHER, OTHER, OTHER, OTHER, result);
+                    sensor = sensor(OTHER, OTHER, OTHER, OTHER, OTHER, OTHER, result);
                     overflow.set(i, sensor);
                 }
             }
@@ -162,17 +173,18 @@ final class AccessMetrics {
     private Sensor sensor(Key key) {
         return sensor(tag(String.valueOf(key.principal())), tag(key.clientId()),
                 key.resourceType().name().toLowerCase(Locale.ROOT).replace('_', '-'), tag(key.resource()),
-                key.operation().name(), key.result());
+                key.operation().name(), api(key.api()), key.result());
     }
 
     private Sensor sensor(String principal, String clientId, String resourceType, String resource, String operation,
-            AuthorizationResult result) {
+            String api, AuthorizationResult result) {
         Map<String, String> tags = new LinkedHashMap<>();
         tags.put("principal", principal);
         tags.put("client-id", clientId);
         tags.put("resource-type", resourceType);
         tags.put("resource", resource);
         tags.put("operation", operation);
+        tags.put("api", api);
         tags.put("result", result.name());
 
         Sensor sensor = metrics.sensor(GROUP + ":" + tags, null, ttlSeconds);
@@ -182,6 +194,12 @@ final class AccessMetrics {
         sensor.add(metrics.metricName("last-seen-ms", GROUP, "Epoch milliseconds of the last request", tags),
                 new Value());
         return sensor;
+    }
+
+    /** Called once per series, not per request. */
+    static String api(int id) {
+        // ApiKeys.forId throws on an id it does not know.
+        return ApiKeys.hasId(id) ? ApiKeys.forId(id).name() : UNKNOWN_API;
     }
 
     private static String tag(String value) {

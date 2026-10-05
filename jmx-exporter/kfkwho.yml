@@ -8,14 +8,15 @@
 lowercaseOutputName: true
 includeObjectNames: ["kfkwho:*"]
 rules:
-  - pattern: 'kfkwho<type=access, principal="?([^,]*?)"?, client-id="?([^,]*?)"?, resource-type=([^,]+), resource="?([^,]*?)"?, operation=([^,]+), result=([^,>]+)><>request-total'
+  - pattern: 'kfkwho<type=access, principal="?([^,]*?)"?, client-id="?([^,]*?)"?, resource-type=([^,]+), resource="?([^,]*?)"?, operation=([^,]+), api=([^,]+), result=([^,>]+)><>request-total'
     name: kfkwho_access_requests_total
     type: COUNTER
-    help: Requests authorized, per principal, client id, resource, operation and verdict
+    help: Requests authorized, per principal, client id, resource, operation, request type and verdict
     labels:
       principal: "$1"
       client_id: "$2"
       resource_type: "$3"
       resource: "$4"
       operation: "$5"
-      result: "$6"
+      api: "$6"
+      result: "$7"
