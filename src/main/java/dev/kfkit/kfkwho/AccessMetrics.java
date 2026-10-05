@@ -72,7 +72,7 @@ import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
  *
  * <p>The tag order is fixed; exporter rules depend on it. The
  * {@code JmxReporter} quotes values that are not valid in an ObjectName.
- * What a tag value is made of (the rules are in the README, "Tag values"):
+ * What a tag value is made of (the rules are in docs/metrics.md, "Tag values"):
  * a null or empty client id, resource name or listener is {@value #UNKNOWN},
  * and counted together with a literal {@value #UNKNOWN}; anything else is kept
  * as sent, whitespace and unicode included; a principal, client id or

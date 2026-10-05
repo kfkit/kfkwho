@@ -46,72 +46,24 @@ the verdict stays the broker's, the observation becomes a metric.
 
 ## Reading the series
 
-`api` is the name of the request's API key, as the broker's `ApiKeys` spell
-it; an id the broker's client library does not know is `api=UNKNOWN`. One
-request may authorize several actions; each is its own series. What a client
-looks like, by kind (`resource-type`, `operation`/`api`):
-
-| Client | Series |
-|---|---|
-| Producer | `topic`, `WRITE`/`PRODUCE` |
-| Idempotent producer | as above, plus `cluster`, `IDEMPOTENT_WRITE`/`INIT_PRODUCER_ID` |
-| Transactional producer | as above, plus `topic`, `WRITE`/`ADD_PARTITIONS_TO_TXN` and `transactional-id`, `WRITE`/`INIT_PRODUCER_ID` |
-| A client that only fetched metadata | `topic`, `DESCRIBE`/`METADATA`: it has not produced |
-| Consumer | `topic`, `READ`/`FETCH`, plus `group`, `READ` with `OFFSET_COMMIT`, `JOIN_GROUP`, `HEARTBEAT` (`CONSUMER_GROUP_HEARTBEAT` for KIP-848 groups) |
-
-For a `group` series the `resource` is the group id, which links client ids
-to consumer groups.
-
-Who is connected right now, without the resources, is the client series:
-`kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=…`
-with the same `request-total`, `request-rate` and `last-seen-ms`, counted
-once per `authorize` call (about once per request that needs authorization)
-rather than once per action. Its client id is rewritten by the same rules as
-the access series'. `kfkwho.labels` decides whether `listener`,
-`security-protocol` and `client-address` are tags; `client-address` is off
-by default. It has its own cap, TTL and `__other__` series, reported as
-`client-series-count`, `client-series-evicted-total` and
-`client-series-overflow-total` under `kfkwho:type=authorizer`. Only brokers
-record; see [Brokers only](docs/config.md#brokers-only). Nothing is filtered by client kind; this table moves to
-the metrics reference once `docs/metrics.md` exists.
-
-## Tag values
-
-What clients send is reported as sent, with four exceptions. These rules
-live here and nowhere else; they move to `docs/metrics.md` with the table
-above.
-
-- **Rewritten.** A `client-id` is first rewritten by the client id rules, by
-  default stripping a per-instance suffix: `consumer-orders-app-3-<uuid>` and
-  `billing-1` are `consumer-orders-app` and `billing`. See
-  [Client id rules](docs/config.md#client-id-rules). A resource whose name
-  matches `kfkwho.resource.exclude` (by default `__.*`, the internal topics)
-  is not recorded at all.
-- **Missing.** A null or empty `client-id`, `resource` or `listener` is `unknown`. Both
-  land in one series, together with a client that really calls itself
-  `unknown`. (The `JmxReporter` drops an empty tag, which would shift the
-  tags after it.)
-- **Too long.** A `principal`, `client-id` or `resource` longer than 256
-  characters (UTF-16 code units) is cut to at most 256: its beginning, `-`,
-  and the first 12 hex digits of the SHA-256 of the whole value in UTF-8. Two
-  long values with a common prefix stay two series, and the same value
-  always gets the same tag. A surrogate pair is never split.
-- **Quoted.** A value with characters an ObjectName does not allow bare
-  (`:`, `,`, `=`, `*`, `"`, non-ASCII letters, ...) is quoted by the
-  `JmxReporter`; `ObjectName.unquote` gives back the value. Nothing else is
-  changed: whitespace, a trailing space included, and unicode are kept, so
-  `платёжка 🚀 ` and `платёжка 🚀` are two clients.
-
-The principal is the whole `KafkaPrincipal`, type included: `User:alice`,
-`User:CN=svc,OU=x,O=y` for an mTLS client, `User:ANONYMOUS`, or
-`Service:billing` from a custom `KafkaPrincipalBuilder`. A cluster action is
-`resource-type=cluster,resource=kafka-cluster`; a request for the `*`
-wildcard topic is `resource-type=topic,resource="\*"`.
+Which series a producer, a consumer or an admin leaves, what each tag value
+is made of, and how to keep their number bounded is in the
+[metrics reference](docs/metrics.md).
 
 ## Usage
 
-Not yet. Installation, configuration and the metrics reference land with the
-first release; follow the [issues](https://github.com/kfkit/kfkwho/issues).
+```bash
+./gradlew jar                                       # build/libs/kfkwho-<version>.jar
+cp build/libs/kfkwho-*.jar "$KAFKA_HOME/libs/"      # on every node
+echo 'authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer' >> "$KAFKA_HOME/config/server.properties"
+export KAFKA_OPTS="-javaagent:jmx_prometheus_javaagent-1.0.1.jar=9404:jmx-exporter/kfkwho.yml"   # then restart, node by node
+curl -s localhost:9404/metrics | grep kfkwho_access_requests_total
+```
+
+A cluster that ran without an authorizer starts enforcing ACLs: read
+[Installation](docs/install.md) first, which also covers the `apache/kafka`
+image and Strimzi. Settings are in [Configuration](docs/config.md), the
+MBeans and Prometheus series in [Metrics](docs/metrics.md).
 
 ## Compatibility
 
