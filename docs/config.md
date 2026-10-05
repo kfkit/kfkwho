@@ -14,11 +14,20 @@ keys, types or defaults; change both together.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `kfkwho.ttl.seconds` | int | `600` | Seconds without a request after which a series is removed; seen again, it starts from zero. At least 1. |
-| `kfkwho.max.series` | int | `10000` | Access series that may exist at once; past it, new ones are recorded into `__other__`. At least 1. |
-| `kfkwho.labels` | list | `principal,client-id,resource-type,resource,operation,api,result,listener,security-protocol` | The labels series carry, a subset of `principal`, `client-id`, `resource-type`, `resource`, `operation`, `api`, `result`, `listener`, `security-protocol`, `client-address`. `client-address` is off by default: its cardinality is that of the clients' addresses. Validated; not applied yet ([#7](https://github.com/kfkit/kfkwho/issues/7)). |
+| `kfkwho.max.series` | int | `10000` | Series of each type that may exist at once: up to this many access series and, separately, as many client series; past it, new ones are recorded into `__other__`. At least 1. |
+| `kfkwho.labels` | list | `principal,client-id,resource-type,resource,operation,api,result,listener,security-protocol` | The labels series carry, a subset of `principal`, `client-id`, `resource-type`, `resource`, `operation`, `api`, `result`, `listener`, `security-protocol`, `client-address`. `client-address` is off by default: its cardinality is that of the clients' addresses. Applied to the client series: `listener`, `security-protocol` and `client-address` are tags of `kfkwho:type=client` only when listed, and a label left out is not part of the series' identity. The other labels are validated; not applied yet. |
 | `kfkwho.client.id.rules` | list | `^(.+?)(-\d+)?-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$=>$1,^(.+)-\d+$=>$1` | Rules that rewrite a client id before it becomes a label, each `pattern=>replacement` in Java regex syntax; the first whose pattern matches the whole id applies, and an id no rule matches is kept. Entries are separated by commas, so a pattern cannot contain one (write `\d+`, not `\d{1,3}`). The default strips per-instance suffixes, see [Client id rules](#client-id-rules). |
 | `kfkwho.resource.exclude` | string | `__.*` | Resources of any type whose whole name matches this Java regex are not recorded at all: by default the internal topics `__consumer_offsets` and `__transaction_state`. An empty value matches no resource. |
 | `kfkwho.count.denied` | boolean | `true` | Whether denied requests are recorded as well as allowed ones. Validated; not applied yet. |
+
+## Brokers only
+
+kfkwho records on brokers only. It reads the broker's own `process.roles`:
+on a node whose roles do not include `broker`, a dedicated controller, the
+requests it authorizes come from brokers, so it registers no MBean, starts no
+thread and only passes the parent's verdict through. A combined node
+(`process.roles=broker,controller`) records. Without `process.roles`, which
+no KRaft node runs without, it records.
 
 ## Client id rules
 

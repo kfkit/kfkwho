@@ -60,7 +60,19 @@ looks like, by kind (`resource-type`, `operation`/`api`):
 | Consumer | `topic`, `READ`/`FETCH`, plus `group`, `READ` with `OFFSET_COMMIT`, `JOIN_GROUP`, `HEARTBEAT` (`CONSUMER_GROUP_HEARTBEAT` for KIP-848 groups) |
 
 For a `group` series the `resource` is the group id, which links client ids
-to consumer groups. Nothing is filtered by client kind; this table moves to
+to consumer groups.
+
+Who is connected right now, without the resources, is the client series:
+`kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=…`
+with the same `request-total`, `request-rate` and `last-seen-ms`, counted
+once per `authorize` call (about once per request that needs authorization)
+rather than once per action. Its client id is rewritten by the same rules as
+the access series'. `kfkwho.labels` decides whether `listener`,
+`security-protocol` and `client-address` are tags; `client-address` is off
+by default. It has its own cap, TTL and `__other__` series, reported as
+`client-series-count`, `client-series-evicted-total` and
+`client-series-overflow-total` under `kfkwho:type=authorizer`. Only brokers
+record; see [Brokers only](docs/config.md#brokers-only). Nothing is filtered by client kind; this table moves to
 the metrics reference once `docs/metrics.md` exists.
 
 ## Tag values
@@ -75,7 +87,7 @@ above.
   [Client id rules](docs/config.md#client-id-rules). A resource whose name
   matches `kfkwho.resource.exclude` (by default `__.*`, the internal topics)
   is not recorded at all.
-- **Missing.** A null or empty `client-id` or `resource` is `unknown`. Both
+- **Missing.** A null or empty `client-id`, `resource` or `listener` is `unknown`. Both
   land in one series, together with a client that really calls itself
   `unknown`. (The `JmxReporter` drops an empty tag, which would shift the
   tags after it.)

@@ -54,6 +54,11 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * fails {@link #configure} with a message naming the key. Series are created and
  * expired on one background thread, {@code kfkwho-series}, never on the
  * request thread.
+ *
+ * <p>Only a broker records. On a node whose {@code process.roles} does not
+ * include {@code broker}, a controller, the requests come from brokers and
+ * would be noise: no {@link Metrics} is created, no thread started and no
+ * MBean registered, and {@link #authorize} is the parent's alone.
  */
 public class MeteredStandardAuthorizer extends StandardAuthorizer {
 
@@ -86,6 +91,9 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
         // A wrong value fails here, before the parent or any metric is set up.
         AuthorizerConfig config = AuthorizerConfig.parse(configs);
         super.configure(configs);
+        if (!config.broker()) {
+            return;
+        }
         metrics = new Metrics(new MetricConfig(), List.of(new JmxReporter()), time,
                 new KafkaMetricsContext(AccessMetrics.JMX_PREFIX));
         // Metrics registers its own count of metrics; it is not ours to publish.
@@ -96,7 +104,7 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
             thread.setDaemon(true);
             return thread;
         });
-        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.clientIdRules(),
+        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.labels(), config.clientIdRules(),
                 config.resourceExclude(), creator != null ? creator : background);
         long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
         background.scheduleAtFixedRate(() -> {
@@ -110,13 +118,18 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
 
     /** Runs on the background thread; package-private so tests can drive it with their own clock. */
     void expireIdleSeries() {
-        access.expire();
+        if (access != null) {
+            access.expire();
+        }
     }
 
     @Override
     public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext, List<Action> actions) {
         List<AuthorizationResult> results = super.authorize(requestContext, actions);
-        access.record(requestContext, actions, results, time.milliseconds());
+        AccessMetrics access = this.access;
+        if (access != null) {
+            access.record(requestContext, actions, results, time.milliseconds());
+        }
         return results;
     }
 

@@ -161,7 +161,7 @@ class SeriesCreationTest {
     @Test
     void aBurstBeyondThePendingLimitGoesToOther() throws Exception {
         start(Map.of());
-        for (int i = 0; i <= AccessMetrics.MAX_PENDING; i++) {
+        for (int i = 0; i <= SeriesSet.MAX_PENDING; i++) {
             readTopic("orders-" + i);
         }
 
@@ -169,13 +169,13 @@ class SeriesCreationTest {
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED), "request-total"));
 
         creator.runAll();
-        assertEquals((double) AccessMetrics.MAX_PENDING, self("series-count"));
+        assertEquals((double) SeriesSet.MAX_PENDING, self("series-count"));
 
         // Seen again once there is room, the key that overflowed gets its own series.
-        String last = "orders-" + AccessMetrics.MAX_PENDING;
+        String last = "orders-" + SeriesSet.MAX_PENDING;
         readTopic(last);
         creator.runAll();
-        assertEquals((double) AccessMetrics.MAX_PENDING + 1, self("series-count"));
+        assertEquals((double) SeriesSet.MAX_PENDING + 1, self("series-count"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(topicSeries(last)), "request-total"));
     }
 
@@ -212,7 +212,7 @@ class SeriesCreationTest {
     void closeWhileTheBackgroundThreadCreatesUnregistersEverything() throws Exception {
         authorizer = new MeteredStandardAuthorizer(Time.SYSTEM);
         start(Map.of());
-        for (int i = 0; i < AccessMetrics.MAX_PENDING; i++) {
+        for (int i = 0; i < SeriesSet.MAX_PENDING; i++) {
             readTopic("orders-" + i);
         }
 

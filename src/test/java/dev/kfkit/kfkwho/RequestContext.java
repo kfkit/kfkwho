@@ -22,9 +22,13 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 
-/** A request as the broker would describe it to the authorizer. */
-record RequestContext(KafkaPrincipal principal, String clientId, InetAddress clientAddress, int requestType)
-        implements AuthorizableRequestContext {
+/** A request as the broker would describe it to the authorizer; by default over a PLAINTEXT listener of that name. */
+record RequestContext(KafkaPrincipal principal, String clientId, InetAddress clientAddress, int requestType,
+        String listenerName, SecurityProtocol securityProtocol) implements AuthorizableRequestContext {
+
+    RequestContext(KafkaPrincipal principal, String clientId, InetAddress clientAddress, int requestType) {
+        this(principal, clientId, clientAddress, requestType, "PLAINTEXT", SecurityProtocol.PLAINTEXT);
+    }
 
     static RequestContext of(String user, String clientId, ApiKeys api) {
         return of(user, clientId, api.id);
@@ -36,14 +40,14 @@ record RequestContext(KafkaPrincipal principal, String clientId, InetAddress cli
                 InetAddress.getLoopbackAddress(), requestType);
     }
 
-    @Override
-    public String listenerName() {
-        return "PLAINTEXT";
+    /** The same request over another listener and security protocol. */
+    RequestContext over(String listener, SecurityProtocol protocol) {
+        return new RequestContext(principal, clientId, clientAddress, requestType, listener, protocol);
     }
 
-    @Override
-    public SecurityProtocol securityProtocol() {
-        return SecurityProtocol.PLAINTEXT;
+    /** The same request from another address. */
+    RequestContext from(InetAddress address) {
+        return new RequestContext(principal, clientId, address, requestType, listenerName, securityProtocol);
     }
 
     @Override

@@ -15,6 +15,7 @@
  */
 package dev.kfkit.kfkwho;
 
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,20 +25,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.regex.Pattern;
 
 import org.apache.kafka.common.acl.AclOperation;
-import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.CumulativeCount;
@@ -47,6 +39,7 @@ import org.apache.kafka.common.metrics.stats.WindowedCount;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -54,10 +47,22 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
 
 /**
- * One series per principal, client id, resource, operation, request type and
- * verdict:
+ * Two types of series, each its own {@link SeriesSet} with the TTL and cap
+ * from the configuration.
+ *
+ * <p>Access: one series per principal, client id, resource, operation,
+ * request type and verdict,
  * {@code kfkwho:type=access,principal=,client-id=,resource-type=,resource=,operation=,api=,result=}
- * with {@code request-total}, {@code request-rate} and {@code last-seen-ms}.
+ * with {@code request-total}, {@code request-rate} and {@code last-seen-ms},
+ * counted once per action.
+ *
+ * <p>Client: one series per principal, client id and, as {@code kfkwho.labels}
+ * selects them, listener, security protocol and client address,
+ * {@code kfkwho:type=client,principal=,client-id=,listener=,security-protocol=,client-address=}
+ * with the same three metrics, counted once per {@code authorize} call. It
+ * answers who is connected without the resource dimension. A label that is
+ * not selected is not a tag and not part of the key: the series of its
+ * values are one.
  *
  * <p>The {@code api} tag is the name of the request's API key
  * ({@code PRODUCE}, {@code METADATA}, {@code INIT_PRODUCER_ID}, ...), which
@@ -68,27 +73,11 @@ import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
  * <p>The tag order is fixed; exporter rules depend on it. The
  * {@code JmxReporter} quotes values that are not valid in an ObjectName.
  * What a tag value is made of (the rules are in the README, "Tag values"):
- * a null or empty client id or resource name is {@value #UNKNOWN}, and
- * counted together with a literal {@value #UNKNOWN}; anything else is kept
+ * a null or empty client id, resource name or listener is {@value #UNKNOWN},
+ * and counted together with a literal {@value #UNKNOWN}; anything else is kept
  * as sent, whitespace and unicode included; a principal, client id or
  * resource longer than {@value #MAX_TAG_LENGTH} characters is cut and ends
  * in a hash of the whole value, see {@link #truncate}.
- *
- * <p>The number of series is bounded twice. A series that saw no request
- * for the TTL is removed by {@link #expire}; seen again, it starts from zero.
- * Once {@code maxSeries} series exist, new combinations are recorded into
- * one {@value #OTHER} series per verdict instead. Both are reported under
- * {@code kfkwho:type=authorizer}: {@code series-count},
- * {@code series-evicted-total} and {@code series-overflow-total}.
- *
- * <p>The request thread never creates a series: creating one registers
- * MBeans and costs tens of microseconds. On first sight of a key it leaves a
- * pending series and hands it to the {@code creator}; requests that arrive
- * before the series exists are counted in the pending series and recorded
- * into it once it is created, so each is counted once. At most
- * {@value #MAX_PENDING} series wait at a time; past that a new key is
- * recorded into {@value #OTHER}, as past the cap. A pending series counts
- * against the cap but not in {@code series-count}.
  *
  * <p>Before a client id becomes a tag, the first client id rule whose
  * pattern matches all of it rewrites it; the result for each raw id is kept
@@ -97,19 +86,21 @@ import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
  * matches the exclude regex is not recorded at all; that is decided only
  * when no series is found, so a recorded resource costs nothing more.
  *
- * <p>A request that finds its series takes no lock of ours and allocates
- * nothing: the lookup key is a per-thread {@link Key} that is copied only
- * when a series is created.
+ * <p>A request whose series exist takes no lock of ours and allocates
+ * nothing: one lookup for the client and one per action, with per-thread
+ * probes that are copied only when a series is created.
  */
 final class AccessMetrics {
 
     static final String JMX_PREFIX = "kfkwho";
     static final String GROUP = "access";
+    static final String CLIENT_GROUP = "client";
     static final String SELF_GROUP = "authorizer";
 
     /**
-     * A null or empty client id or resource name. The {@code JmxReporter}
-     * drops a tag whose value is empty, which would shift the tags that follow.
+     * A null or empty client id, resource name or listener. The
+     * {@code JmxReporter} drops a tag whose value is empty, which would shift
+     * the tags that follow.
      */
     static final String UNKNOWN = "unknown";
 
@@ -125,74 +116,86 @@ final class AccessMetrics {
     /** The {@code api} of a request type that is not an {@link ApiKeys} id. */
     static final String UNKNOWN_API = "UNKNOWN";
 
-    /** Series waiting for the creator, at most; a burst of new keys beyond it goes to {@value #OTHER}. */
-    static final int MAX_PENDING = 1024;
-
     /** Raw client ids, and resource names, whose rewrite or exclusion is remembered, at most. */
     static final int MAX_MEMO = 10_000;
 
     private final Metrics metrics;
     private final long ttlSeconds;
-    private final int maxSeries;
-    private final Executor creator;
     /** Raw client id to tag value; null without rules. */
     private final Memo<String> clientIds;
     private final Memo<Boolean> excluded;
-    private final Map<Key, Series> seriesByKey = new ConcurrentHashMap<>();
-    /** The lookup key of each request thread; never stored in {@link #seriesByKey}. */
-    private final ThreadLocal<Key> probes = ThreadLocal.withInitial(Key::new);
-    private final Queue<Series> pending = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger pendingCount = new AtomicInteger();
-    private final AtomicBoolean createScheduled = new AtomicBoolean();
-    /** Guards creating a series against {@link #close}: none is registered after it. */
-    private final Object createLock = new Object();
-    private boolean closed;
-    /** The {@value #OTHER} series, by verdict ordinal; created on the first overflow. */
-    private final AtomicReferenceArray<Sensor> overflow =
-            new AtomicReferenceArray<>(AuthorizationResult.values().length);
-    private final Sensor evicted;
-    private final Sensor overflowed;
+    private final boolean listener;
+    private final boolean securityProtocol;
+    private final boolean clientAddress;
+    private final SeriesSet<Key> access;
+    private final SeriesSet<ClientKey> clients;
+    /** The lookup keys of each request thread; never stored in a {@link SeriesSet}. */
+    private final ThreadLocal<Probes> probes = ThreadLocal.withInitial(Probes::new);
 
     /**
      * Under concurrent first sightings {@code maxSeries} may be overshot by
      * the number of request handler threads.
+     *
+     * @param labels the labels of {@code kfkwho.labels}; of them, this reads
+     *        {@code listener}, {@code security-protocol} and {@code client-address}
      */
-    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, List<ClientIdRule> clientIdRules,
-            Pattern resourceExclude, Executor creator) {
+    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, List<String> labels,
+            List<ClientIdRule> clientIdRules, Pattern resourceExclude, Executor creator) {
         this.metrics = metrics;
         this.ttlSeconds = ttlSeconds;
-        this.maxSeries = maxSeries;
-        this.creator = creator;
         this.clientIds = clientIdRules.isEmpty() ? null
                 : new Memo<>(raw -> orUnknown(rewrite(clientIdRules, raw)), MAX_MEMO);
         this.excluded = new Memo<>(resource -> resourceExclude.matcher(resource).matches(), MAX_MEMO);
-        metrics.addMetric(metrics.metricName("series-count", SELF_GROUP, "Access series that exist, overflow aside"),
-                (Measurable) (config, nowMs) -> Math.max(0, seriesByKey.size() - pendingCount.get()));
-        evicted = metrics.sensor(SELF_GROUP + ":series-evicted");
-        evicted.add(metrics.metricName("series-evicted-total", SELF_GROUP, "Access series removed after the TTL"),
-                new CumulativeCount());
-        overflowed = metrics.sensor(SELF_GROUP + ":series-overflow");
-        overflowed.add(metrics.metricName("series-overflow-total", SELF_GROUP,
-                "Requests recorded into the overflow series because the cap was reached"
-                        + " or too many series were waiting to be created"), new CumulativeCount());
+        this.listener = labels.contains("listener");
+        this.securityProtocol = labels.contains("security-protocol");
+        this.clientAddress = labels.contains("client-address");
+        this.access = new SeriesSet<Key>(metrics, "", "Access", maxSeries, AuthorizationResult.values().length,
+                creator, new SeriesSet.Sensors<Key>() {
+                    @Override
+                    public Sensor sensor(Key key) {
+                        return accessSensor(key);
+                    }
+
+                    @Override
+                    public Sensor overflow(int slot) {
+                        return accessSensor(OTHER, OTHER, OTHER, OTHER, OTHER, OTHER,
+                                AuthorizationResult.values()[slot]);
+                    }
+                });
+        this.clients = new SeriesSet<ClientKey>(metrics, "client-", "Client", maxSeries, 1, creator,
+                new SeriesSet.Sensors<ClientKey>() {
+                    @Override
+                    public Sensor sensor(ClientKey key) {
+                        return clientSensor(key);
+                    }
+
+                    @Override
+                    public Sensor overflow(int slot) {
+                        return clientSensor(OTHER, OTHER, OTHER, OTHER, OTHER);
+                    }
+                });
     }
 
     void record(AuthorizableRequestContext context, List<Action> actions, List<AuthorizationResult> results,
             long nowMs) {
-        Key probe = probes.get();
+        Probes probes = this.probes.get();
         // Normalised before the lookup, so that values with one tag are one series.
         String clientId = clientId(context.clientId());
+        ClientKey client = probes.client;
+        client.set(context.principal(), clientId, listener ? orUnknown(context.listenerName()) : null,
+                securityProtocol ? context.securityProtocol() : null, clientAddress ? context.clientAddress() : null);
+        if (!clients.recordExisting(client, nowMs)) {
+            clients.firstSight(client, 0, nowMs);
+        }
+        Key probe = probes.access;
         for (int i = 0; i < actions.size(); i++) {
             Action action = actions.get(i);
             AuthorizationResult result = results.get(i);
             String resource = orUnknown(action.resourcePattern().name());
             probe.set(context.principal(), clientId, action.resourcePattern().resourceType(), resource,
                     action.operation(), context.requestType(), result);
-            Series series = seriesByKey.get(probe);
-            if (series != null) {
-                series.record(nowMs);
-            } else if (!excluded.get(resource)) {
-                firstSight(probe, result, nowMs);
+            if (!access.recordExisting(probe, nowMs) && !excluded.get(resource)) {
+                access.firstSight(probe, result.ordinal(), nowMs);
             }
         }
     }
@@ -222,103 +225,29 @@ final class AccessMetrics {
         return clientId;
     }
 
-    /** On the request thread: leaves a pending series for the creator, or records into overflow. */
-    private void firstSight(Key probe, AuthorizationResult result, long nowMs) {
-        if (seriesByKey.size() >= maxSeries) {
-            overflow(result, nowMs);
-            return;
-        }
-        if (pendingCount.incrementAndGet() > MAX_PENDING) {
-            pendingCount.decrementAndGet();
-            overflow(result, nowMs);
-            return;
-        }
-        Key key = probe.copy();
-        Series series = new Series(key);
-        Series raced = seriesByKey.putIfAbsent(key, series);
-        if (raced != null) {
-            pendingCount.decrementAndGet();
-            raced.record(nowMs);
-            return;
-        }
-        series.record(nowMs);
-        pending.add(series);
-        if (!createScheduled.get() && createScheduled.compareAndSet(false, true)) {
-            try {
-                creator.execute(this::createPending);
-            } catch (RejectedExecutionException e) {
-                // Closed; nothing will be created any more.
-            }
-        }
-    }
-
-    private void overflow(AuthorizationResult result, long nowMs) {
-        overflow(result).record(nowMs, nowMs);
-        overflowed.record(1, nowMs);
-    }
-
-    /**
-     * On the creator: creates the pending series and records what each
-     * counted meanwhile. A series queued after this started may be left to
-     * the run its request scheduled, so that a stream of new keys cannot hold
-     * the thread that also expires series.
-     */
-    void createPending() {
-        createScheduled.set(false);
-        Series series;
-        for (int i = 0; i < MAX_PENDING && (series = pending.poll()) != null; i++) {
-            try {
-                synchronized (createLock) {
-                    if (closed) {
-                        return;
-                    }
-                    series.sensor = sensor(series.key);
-                }
-                series.flush();
-            } catch (RuntimeException e) {
-                // What it counted is lost; the next request for the key tries again.
-                seriesByKey.remove(series.key, series);
-            } finally {
-                pendingCount.decrementAndGet();
-            }
-        }
-    }
-
-    /**
-     * Removes the series, overflow included, that saw no request for the
-     * TTL. A request racing with the removal of its series may be recorded
-     * into the removed one and lost; that series had been idle for the TTL.
-     * A pending series is left to the creator.
-     */
+    /** Removes the series of both types that saw no request for the TTL. */
     void expire() {
-        for (Map.Entry<Key, Series> entry : seriesByKey.entrySet()) {
-            Sensor sensor = entry.getValue().sensor;
-            if (sensor != null && sensor.hasExpired() && seriesByKey.remove(entry.getKey(), entry.getValue())) {
-                metrics.removeSensor(sensor.name());
-                evicted.record(1);
-            }
-        }
-        for (int i = 0; i < overflow.length(); i++) {
-            Sensor sensor = overflow.get(i);
-            if (sensor != null && sensor.hasExpired() && overflow.compareAndSet(i, sensor, null)) {
-                metrics.removeSensor(sensor.name());
-            }
-        }
+        access.expire();
+        clients.expire();
     }
 
     /** No series is created after this returns; closing {@link Metrics} removes those that were. */
     void close() {
-        synchronized (createLock) {
-            closed = true;
-        }
-        pending.clear();
+        access.close();
+        clients.close();
+    }
+
+    /** The probes of one request thread. */
+    private static final class Probes {
+        final Key access = new Key();
+        final ClientKey client = new ClientKey();
     }
 
     /**
-     * The identity of a series. The per-thread probe is set for every action;
-     * a copy, never changed again, is what {@link #seriesByKey} keeps.
+     * The identity of an access series. The per-thread probe is set for
+     * every action; a copy, never changed again, is what the set keeps.
      */
-    private static final class Key {
+    private static final class Key implements SeriesSet.Key<Key> {
         private KafkaPrincipal principal;
         private String clientId;
         private ResourceType resourceType;
@@ -346,7 +275,8 @@ final class AccessMetrics {
             this.hash = 31 * h + result.hashCode();
         }
 
-        Key copy() {
+        @Override
+        public Key copy() {
             Key key = new Key();
             key.set(principal, clientId, resourceType, resource, operation, api, result);
             return key;
@@ -365,74 +295,57 @@ final class AccessMetrics {
         }
     }
 
-    /**
-     * A series, created or pending. Until the creator sets {@link #sensor},
-     * requests are counted in {@link #pending}; the creator then swaps in
-     * {@link #CREATED} and records the count, so a request is counted either
-     * there or directly into the sensor, never both and never neither.
-     */
-    private static final class Series {
-        private static final long CREATED = Long.MIN_VALUE;
+    /** The identity of a client series; a label that is not selected is null. */
+    private static final class ClientKey implements SeriesSet.Key<ClientKey> {
+        private KafkaPrincipal principal;
+        private String clientId;
+        private String listener;
+        private SecurityProtocol securityProtocol;
+        private InetAddress clientAddress;
+        private int hash;
 
-        final Key key;
-        volatile Sensor sensor;
-        private final AtomicLong pending = new AtomicLong();
-        /** The time of the latest request counted in {@link #pending}. */
-        private volatile long pendingMs;
-
-        Series(Key key) {
-            this.key = key;
+        void set(KafkaPrincipal principal, String clientId, String listener, SecurityProtocol securityProtocol,
+                InetAddress clientAddress) {
+            this.principal = principal;
+            this.clientId = clientId;
+            this.listener = listener;
+            this.securityProtocol = securityProtocol;
+            this.clientAddress = clientAddress;
+            int h = Objects.hashCode(principal);
+            h = 31 * h + clientId.hashCode();
+            h = 31 * h + Objects.hashCode(listener);
+            h = 31 * h + Objects.hashCode(securityProtocol);
+            this.hash = 31 * h + Objects.hashCode(clientAddress);
         }
 
-        void record(long nowMs) {
-            Sensor s = sensor;
-            if (s == null) {
-                pendingMs = nowMs;
-                for (long n = pending.get(); n != CREATED; n = pending.get()) {
-                    if (pending.compareAndSet(n, n + 1)) {
-                        return;
-                    }
-                }
-                // Created between the two reads; the sensor was set before CREATED.
-                s = sensor;
-            }
-            // CumulativeCount and WindowedCount count records; Value keeps the time.
-            s.record(nowMs, nowMs);
+        @Override
+        public ClientKey copy() {
+            ClientKey key = new ClientKey();
+            key.set(principal, clientId, listener, securityProtocol, clientAddress);
+            return key;
         }
 
-        /** After {@link #sensor} is set. */
-        void flush() {
-            long n = pending.getAndSet(CREATED);
-            long ms = pendingMs;
-            for (long i = 0; i < n; i++) {
-                sensor.record(ms, ms);
-            }
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof ClientKey k && hash == k.hash && securityProtocol == k.securityProtocol
+                    && clientId.equals(k.clientId) && Objects.equals(listener, k.listener)
+                    && Objects.equals(principal, k.principal) && Objects.equals(clientAddress, k.clientAddress);
         }
     }
 
-    private Sensor overflow(AuthorizationResult result) {
-        int i = result.ordinal();
-        Sensor sensor = overflow.get(i);
-        if (sensor == null) {
-            synchronized (overflow) {
-                sensor = overflow.get(i);
-                if (sensor == null) {
-                    sensor = sensor(OTHER, OTHER, OTHER, OTHER, OTHER, OTHER, result);
-                    overflow.set(i, sensor);
-                }
-            }
-        }
-        return sensor;
-    }
-
-    private Sensor sensor(Key key) {
-        return sensor(truncate(String.valueOf(key.principal)), truncate(key.clientId),
+    private Sensor accessSensor(Key key) {
+        return accessSensor(truncate(String.valueOf(key.principal)), truncate(key.clientId),
                 key.resourceType.name().toLowerCase(Locale.ROOT).replace('_', '-'), truncate(key.resource),
                 key.operation.name(), api(key.api), key.result);
     }
 
-    private Sensor sensor(String principal, String clientId, String resourceType, String resource, String operation,
-            String api, AuthorizationResult result) {
+    private Sensor accessSensor(String principal, String clientId, String resourceType, String resource,
+            String operation, String api, AuthorizationResult result) {
         Map<String, String> tags = new LinkedHashMap<>();
         tags.put("principal", principal);
         tags.put("client-id", clientId);
@@ -442,11 +355,39 @@ final class AccessMetrics {
         tags.put("api", api);
         tags.put("result", result.name());
 
-        Sensor sensor = metrics.sensor(GROUP + ":" + tags, null, ttlSeconds);
-        sensor.add(metrics.metricName("request-total", GROUP, "Requests authorized", tags), new CumulativeCount());
-        sensor.add(metrics.metricName("request-rate", GROUP, "Requests authorized per second", tags),
+        return sensor(GROUP, "Requests authorized", tags);
+    }
+
+    private Sensor clientSensor(ClientKey key) {
+        return clientSensor(truncate(String.valueOf(key.principal)), truncate(key.clientId), key.listener,
+                key.securityProtocol == null ? UNKNOWN : key.securityProtocol.name(),
+                key.clientAddress == null ? UNKNOWN : key.clientAddress.getHostAddress());
+    }
+
+    /** Tags of labels that are not selected are left out, whatever is passed for them. */
+    private Sensor clientSensor(String principal, String clientId, String listener, String securityProtocol,
+            String clientAddress) {
+        Map<String, String> tags = new LinkedHashMap<>();
+        tags.put("principal", principal);
+        tags.put("client-id", clientId);
+        if (this.listener) {
+            tags.put("listener", listener);
+        }
+        if (this.securityProtocol) {
+            tags.put("security-protocol", securityProtocol);
+        }
+        if (this.clientAddress) {
+            tags.put("client-address", clientAddress);
+        }
+        return sensor(CLIENT_GROUP, "Authorize calls", tags);
+    }
+
+    private Sensor sensor(String group, String what, Map<String, String> tags) {
+        Sensor sensor = metrics.sensor(group + ":" + tags, null, ttlSeconds);
+        sensor.add(metrics.metricName("request-total", group, what, tags), new CumulativeCount());
+        sensor.add(metrics.metricName("request-rate", group, what + " per second", tags),
                 new Rate(TimeUnit.SECONDS, new WindowedCount()));
-        sensor.add(metrics.metricName("last-seen-ms", GROUP, "Epoch milliseconds of the last request", tags),
+        sensor.add(metrics.metricName("last-seen-ms", group, "Epoch milliseconds of the last request", tags),
                 new Value());
         return sensor;
     }
