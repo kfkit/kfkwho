@@ -23,12 +23,17 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 
 /** A request as the broker would describe it to the authorizer. */
-record RequestContext(KafkaPrincipal principal, String clientId, InetAddress clientAddress, ApiKeys api)
+record RequestContext(KafkaPrincipal principal, String clientId, InetAddress clientAddress, int requestType)
         implements AuthorizableRequestContext {
 
     static RequestContext of(String user, String clientId, ApiKeys api) {
+        return of(user, clientId, api.id);
+    }
+
+    /** A request whose type may be an id no {@link ApiKeys} has, as from a newer client. */
+    static RequestContext of(String user, String clientId, int requestType) {
         return new RequestContext(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, user), clientId,
-                InetAddress.getLoopbackAddress(), api);
+                InetAddress.getLoopbackAddress(), requestType);
     }
 
     @Override
@@ -42,13 +47,8 @@ record RequestContext(KafkaPrincipal principal, String clientId, InetAddress cli
     }
 
     @Override
-    public int requestType() {
-        return api.id;
-    }
-
-    @Override
     public int requestVersion() {
-        return api.latestVersion();
+        return ApiKeys.hasId(requestType) ? ApiKeys.forId(requestType).latestVersion() : 0;
     }
 
     @Override
