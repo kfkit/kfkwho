@@ -1,6 +1,7 @@
 plugins {
     java
     `jvm-test-suite`
+    id("me.champeau.jmh") version "0.7.3"
 }
 
 group = "dev.kfkit"
@@ -36,6 +37,11 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.slf4j:slf4j-simple:2.0.20")
+
+    jmh("org.apache.kafka:kafka-metadata:$kafkaVersion")
+    jmh("org.apache.kafka:kafka-clients:$kafkaVersion")
+    jmh("org.apache.kafka:kafka-server-common:$kafkaVersion")
+    jmhRuntimeOnly("org.slf4j:slf4j-nop:2.0.20")
 }
 
 // The JMX Exporter agent the broker in the integration test runs with.
@@ -105,4 +111,19 @@ tasks.jar {
             "Implementation-Vendor" to "kfkit",
         )
     }
+}
+
+// The hot path, measured: ./gradlew jmh. Not part of build; check only
+// compiles the benchmarks so they cannot rot. Iterations, forks and threads
+// are on the benchmark classes; results and the allocation profile land in
+// build/results/jmh/results.json.
+jmh {
+    jmhVersion = "1.37"
+    resultFormat = "JSON"
+    resultsFile = layout.buildDirectory.file("results/jmh/results.json")
+    profilers = listOf("gc")
+}
+
+tasks.check {
+    dependsOn(tasks.named("jmhClasses"))
 }
