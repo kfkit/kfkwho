@@ -50,13 +50,15 @@ Compiled against Kafka 4.3, Java 17. Kafka 4.1 and later is the target
 ```bash
 ./gradlew check
 ./gradlew integrationTest -PbrokerVersion=4.1.2   # needs Docker; default: the compile version
+./gradlew jmh                                     # the hot-path benchmarks, a few minutes
 ```
 
 The integration test runs the built jar as the authorizer of an
 `apache/kafka` broker with the JMX Exporter agent and the rules in
 `jmx-exporter/`, and checks the exporter's output. Without Docker it is
 skipped; `./gradlew check -PintegrationTest` makes it part of `check`. CI runs
-it on every supported broker release.
+it on every supported broker release. What the metrics cost per request is in
+[docs/performance.md](docs/performance.md).
 
 Rules for contributors, human or agent, are in [AGENTS.md](AGENTS.md).
 
