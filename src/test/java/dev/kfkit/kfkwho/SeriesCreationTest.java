@@ -236,7 +236,7 @@ class SeriesCreationTest {
     }
 
     private static String topicSeries(String topic) {
-        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,resource-type=topic,resource="
+        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing,resource-type=topic,resource="
                 + topic + ",operation=READ,api=FETCH,result=ALLOWED";
     }
 

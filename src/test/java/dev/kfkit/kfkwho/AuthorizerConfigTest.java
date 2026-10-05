@@ -97,7 +97,8 @@ class AuthorizerConfigTest {
         assertEquals(10_000, config.maxSeries());
         assertEquals(List.of("principal", "client-id", "resource-type", "resource", "operation", "api", "result",
                 "listener", "security-protocol"), config.labels());
-        assertEquals(List.of(), config.clientIdRules());
+        assertEquals(AuthorizerConfig.DEFAULT_CLIENT_ID_RULES, config.clientIdRules().stream()
+                .map(rule -> rule.pattern().pattern() + AuthorizerConfig.RULE_SEPARATOR + rule.replacement()).toList());
         assertEquals("__.*", config.resourceExclude().pattern());
         assertTrue(config.resourceExclude().matcher("__consumer_offsets").matches());
         assertFalse(config.resourceExclude().matcher("orders").matches());
