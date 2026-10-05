@@ -50,7 +50,7 @@ class AccessMetricsTest {
     private static final MBeanServer SERVER = ManagementFactory.getPlatformMBeanServer();
     private static final ResourcePattern ORDERS = new ResourcePattern(ResourceType.TOPIC, "orders", PatternType.LITERAL);
     private static final List<Action> READ_ORDERS = List.of(new Action(AclOperation.READ, ORDERS, 1, true, true));
-    private static final String ALICE_READS_ORDERS = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
+    private static final String ALICE_READS_ORDERS = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
             + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
 
     private final Metrics pluginMetrics = new Metrics();
@@ -95,7 +95,7 @@ class AccessMetricsTest {
         assertEquals(List.of(AuthorizationResult.DENIED),
                 authorizer.authorize(RequestContext.of("bob", "billing-2", ApiKeys.FETCH), READ_ORDERS));
 
-        String bobDenied = "kfkwho:type=access,principal=\"User:bob\",client-id=billing-2,"
+        String bobDenied = "kfkwho:type=access,principal=\"User:bob\",client-id=billing,"
                 + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=DENIED";
         assertEquals(Set.of(ALICE_READS_ORDERS, bobDenied), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(bobDenied), "request-total"));
@@ -125,9 +125,9 @@ class AccessMetricsTest {
         authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
         authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
 
-        String produced = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
+        String produced = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
                 + "resource-type=topic,resource=orders,operation=WRITE,api=PRODUCE,result=ALLOWED";
-        String described = "kfkwho:type=access,principal=\"User:alice\",client-id=billing-1,"
+        String described = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
                 + "resource-type=topic,resource=orders,operation=DESCRIBE,api=METADATA,result=ALLOWED";
         assertEquals(Set.of(produced, described), accessBeans());
         assertEquals(2.0, SERVER.getAttribute(new ObjectName(produced), "request-total"));

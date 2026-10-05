@@ -17,6 +17,7 @@ package dev.kfkit.kfkwho;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -63,6 +64,19 @@ final class AuthorizerConfig {
     /** Between the pattern and the replacement of a client id rule. */
     static final String RULE_SEPARATOR = "=>";
 
+    private static final String UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+
+    /**
+     * Strip what differs between instances of one application: a trailing
+     * {@code -<uuid>}, with the {@code -<n>} before it, and else a trailing
+     * {@code -<n>}, the counter the Java clients append
+     * ({@code consumer-<group>-<n>}, {@code producer-<n>}). Listed in
+     * {@code docs/config.md} for operators to copy and adjust.
+     */
+    static final List<String> DEFAULT_CLIENT_ID_RULES = List.of(
+            "^(.+?)(-\\d+)?-" + UUID + "$" + RULE_SEPARATOR + "$1",
+            "^(.+)-\\d+$" + RULE_SEPARATOR + "$1");
+
     static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(TTL_SECONDS_CONFIG, Type.INT, DEFAULT_TTL_SECONDS, Range.atLeast(1), Importance.MEDIUM,
                     "Seconds without a request after which a series is removed; seen again, it starts from zero.")
@@ -70,9 +84,9 @@ final class AuthorizerConfig {
                     "Access series that may exist at once; past it, new ones are recorded into __other__.")
             .define(LABELS_CONFIG, Type.LIST, DEFAULT_LABELS, AuthorizerConfig::validateLabels, Importance.LOW,
                     "The labels series carry, a subset of " + String.join(", ", KNOWN_LABELS) + ".")
-            .define(CLIENT_ID_RULES_CONFIG, Type.LIST, List.of(), AuthorizerConfig::validateRules, Importance.LOW,
+            .define(CLIENT_ID_RULES_CONFIG, Type.LIST, DEFAULT_CLIENT_ID_RULES, AuthorizerConfig::validateRules, Importance.LOW,
                     "Rules that rewrite a client id before it becomes a label, each pattern" + RULE_SEPARATOR
-                            + "replacement in Java regex syntax; the first that matches applies.")
+                            + "replacement in Java regex syntax; the first whose pattern matches the whole id applies.")
             .define(RESOURCE_EXCLUDE_CONFIG, Type.STRING, "__.*", AuthorizerConfig::validateRegex, Importance.LOW,
                     "Resources whose whole name matches this Java regex are not recorded.")
             .define(COUNT_DENIED_CONFIG, Type.BOOLEAN, true, Importance.LOW,
@@ -126,6 +140,20 @@ final class AuthorizerConfig {
     /** One {@code pattern=>replacement} entry of {@value #CLIENT_ID_RULES_CONFIG}, compiled. */
     record ClientIdRule(Pattern pattern, String replacement) {
 
+        /**
+         * The replacement, with {@code $n} groups filled in, when the pattern
+         * matches the whole id; null when it does not.
+         */
+        String rewrite(String clientId) {
+            Matcher matcher = pattern.matcher(clientId);
+            if (!matcher.matches()) {
+                return null;
+            }
+            StringBuilder rewritten = new StringBuilder();
+            matcher.appendReplacement(rewritten, replacement);
+            return rewritten.toString();
+        }
+
         /** Splits at the last separator, so a pattern may contain one; assumes the entry was validated. */
         static ClientIdRule parse(String rule) {
             int at = rule.lastIndexOf(RULE_SEPARATOR);
@@ -148,17 +176,54 @@ final class AuthorizerConfig {
             if (at <= 0) {
                 throw new ConfigException(name, rule, "A rule is pattern" + RULE_SEPARATOR + "replacement");
             }
-            compile(name, rule, rule.substring(0, at));
+            Pattern pattern = compile(name, rule, rule.substring(0, at));
+            String problem = replacementProblem(pattern, rule.substring(at + RULE_SEPARATOR.length()));
+            if (problem != null) {
+                throw new ConfigException(name, rule, problem);
+            }
         }
+    }
+
+    /**
+     * What {@link Matcher#appendReplacement} would throw on, found before a
+     * request does: a {@code $n} beyond the groups of the pattern, a
+     * {@code ${name}} that is not one of them, a lone {@code $} or {@code \}.
+     */
+    private static String replacementProblem(Pattern pattern, String replacement) {
+        int groups = pattern.matcher("").groupCount();
+        for (int i = 0; i < replacement.length(); i++) {
+            char c = replacement.charAt(i);
+            if (c == '\\') {
+                if (++i == replacement.length()) {
+                    return "The replacement ends in an unescaped \\";
+                }
+            } else if (c == '$') {
+                if (++i == replacement.length()) {
+                    return "The replacement ends in a lone $; write \\$ for a dollar sign";
+                }
+                char next = replacement.charAt(i);
+                if (next == '{') {
+                    int end = replacement.indexOf('}', i);
+                    String group = end < 0 ? "" : replacement.substring(i + 1, end);
+                    if (group.isEmpty() || !pattern.pattern().contains("(?<" + group + ">")) {
+                        return "The replacement refers to a group the pattern does not name: ${" + group + "}";
+                    }
+                    i = end;
+                } else if (next < '0' || next > '9' || next - '0' > groups) {
+                    return "The replacement refers to group $" + next + "; the pattern has " + groups;
+                }
+            }
+        }
+        return null;
     }
 
     private static void validateRegex(String name, Object value) {
         compile(name, value, (String) value);
     }
 
-    private static void compile(String name, Object value, String regex) {
+    private static Pattern compile(String name, Object value, String regex) {
         try {
-            Pattern.compile(regex);
+            return Pattern.compile(regex);
         } catch (PatternSyntaxException e) {
             throw new ConfigException(name, value, "Not a valid Java regex: " + e.getDescription());
         }

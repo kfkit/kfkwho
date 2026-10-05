@@ -65,10 +65,16 @@ the metrics reference once `docs/metrics.md` exists.
 
 ## Tag values
 
-What clients send is reported as sent, with three exceptions. These rules
+What clients send is reported as sent, with four exceptions. These rules
 live here and nowhere else; they move to `docs/metrics.md` with the table
 above.
 
+- **Rewritten.** A `client-id` is first rewritten by the client id rules, by
+  default stripping a per-instance suffix: `consumer-orders-app-3-<uuid>` and
+  `billing-1` are `consumer-orders-app` and `billing`. See
+  [Client id rules](docs/config.md#client-id-rules). A resource whose name
+  matches `kfkwho.resource.exclude` (by default `__.*`, the internal topics)
+  is not recorded at all.
 - **Missing.** A null or empty `client-id` or `resource` is `unknown`. Both
   land in one series, together with a client that really calls itself
   `unknown`. (The `JmxReporter` drops an empty tag, which would shift the

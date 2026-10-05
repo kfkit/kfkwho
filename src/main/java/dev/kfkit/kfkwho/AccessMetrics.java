@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.regex.Pattern;
 
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.metrics.Measurable;
@@ -49,6 +50,8 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
+
+import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
 
 /**
  * One series per principal, client id, resource, operation, request type and
@@ -87,6 +90,13 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * recorded into {@value #OTHER}, as past the cap. A pending series counts
  * against the cap but not in {@code series-count}.
  *
+ * <p>Before a client id becomes a tag, the first client id rule whose
+ * pattern matches all of it rewrites it; the result for each raw id is kept
+ * in a {@link Memo} of at most {@value #MAX_MEMO} ids, so the rules run once
+ * per distinct id, not per request. An action on a resource whose name
+ * matches the exclude regex is not recorded at all; that is decided only
+ * when no series is found, so a recorded resource costs nothing more.
+ *
  * <p>A request that finds its series takes no lock of ours and allocates
  * nothing: the lookup key is a per-thread {@link Key} that is copied only
  * when a series is created.
@@ -118,10 +128,16 @@ final class AccessMetrics {
     /** Series waiting for the creator, at most; a burst of new keys beyond it goes to {@value #OTHER}. */
     static final int MAX_PENDING = 1024;
 
+    /** Raw client ids, and resource names, whose rewrite or exclusion is remembered, at most. */
+    static final int MAX_MEMO = 10_000;
+
     private final Metrics metrics;
     private final long ttlSeconds;
     private final int maxSeries;
     private final Executor creator;
+    /** Raw client id to tag value; null without rules. */
+    private final Memo<String> clientIds;
+    private final Memo<Boolean> excluded;
     private final Map<Key, Series> seriesByKey = new ConcurrentHashMap<>();
     /** The lookup key of each request thread; never stored in {@link #seriesByKey}. */
     private final ThreadLocal<Key> probes = ThreadLocal.withInitial(Key::new);
@@ -141,11 +157,15 @@ final class AccessMetrics {
      * Under concurrent first sightings {@code maxSeries} may be overshot by
      * the number of request handler threads.
      */
-    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, Executor creator) {
+    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, List<ClientIdRule> clientIdRules,
+            Pattern resourceExclude, Executor creator) {
         this.metrics = metrics;
         this.ttlSeconds = ttlSeconds;
         this.maxSeries = maxSeries;
         this.creator = creator;
+        this.clientIds = clientIdRules.isEmpty() ? null
+                : new Memo<>(raw -> orUnknown(rewrite(clientIdRules, raw)), MAX_MEMO);
+        this.excluded = new Memo<>(resource -> resourceExclude.matcher(resource).matches(), MAX_MEMO);
         metrics.addMetric(metrics.metricName("series-count", SELF_GROUP, "Access series that exist, overflow aside"),
                 (Measurable) (config, nowMs) -> Math.max(0, seriesByKey.size() - pendingCount.get()));
         evicted = metrics.sensor(SELF_GROUP + ":series-evicted");
@@ -160,19 +180,46 @@ final class AccessMetrics {
     void record(AuthorizableRequestContext context, List<Action> actions, List<AuthorizationResult> results,
             long nowMs) {
         Key probe = probes.get();
+        // Normalised before the lookup, so that values with one tag are one series.
+        String clientId = clientId(context.clientId());
         for (int i = 0; i < actions.size(); i++) {
             Action action = actions.get(i);
             AuthorizationResult result = results.get(i);
-            // Normalised before the lookup, so that values with one tag are one series.
-            probe.set(context.principal(), orUnknown(context.clientId()), action.resourcePattern().resourceType(),
-                    orUnknown(action.resourcePattern().name()), action.operation(), context.requestType(), result);
+            String resource = orUnknown(action.resourcePattern().name());
+            probe.set(context.principal(), clientId, action.resourcePattern().resourceType(), resource,
+                    action.operation(), context.requestType(), result);
             Series series = seriesByKey.get(probe);
             if (series != null) {
                 series.record(nowMs);
-            } else {
+            } else if (!excluded.get(resource)) {
                 firstSight(probe, result, nowMs);
             }
         }
+    }
+
+    /** The tag value of a raw client id: one lookup once its rewrite is known. */
+    private String clientId(String raw) {
+        String clientId = orUnknown(raw);
+        // UNKNOWN stands for a missing id; no rule is meant for it.
+        return clientIds == null || clientId == UNKNOWN ? clientId : clientIds.get(clientId);
+    }
+
+    /**
+     * The first rule's rewrite, or the id as it came when none matches.
+     * Called once per distinct raw id, not per request.
+     */
+    static String rewrite(List<ClientIdRule> rules, String clientId) {
+        for (ClientIdRule rule : rules) {
+            try {
+                String rewritten = rule.rewrite(clientId);
+                if (rewritten != null) {
+                    return rewritten;
+                }
+            } catch (RuntimeException e) {
+                // A replacement the validation let through; authorize must not throw.
+            }
+        }
+        return clientId;
     }
 
     /** On the request thread: leaves a pending series for the creator, or records into overflow. */

@@ -96,9 +96,8 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
             thread.setDaemon(true);
             return thread;
         });
-        access = new AccessMetrics(metrics, ttlSeconds,
-                config.maxSeries(),
-                creator != null ? creator : background);
+        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.clientIdRules(),
+                config.resourceExclude(), creator != null ? creator : background);
         long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
         background.scheduleAtFixedRate(() -> {
             try {

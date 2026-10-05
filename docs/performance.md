@@ -15,7 +15,8 @@ them.
 ## What is measured
 
 Every call authorizes one action (`READ` on a topic) for `User:alice`, client
-id `billing-1`, against a `StandardAuthorizer` with plugin metrics and one
+id `billing-1` (which the default client id rules rewrite to `billing`, so the
+steady state includes looking up the remembered rewrite), against a `StandardAuthorizer` with plugin metrics and one
 prefixed `ALLOW` ACL on `orders`, no super users: the parent walks its ACLs as
 it would on a broker. Each metered scenario has a parent-only twin; the
 difference is what kfkwho costs.
