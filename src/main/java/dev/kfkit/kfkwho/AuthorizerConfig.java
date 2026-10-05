@@ -50,6 +50,9 @@ final class AuthorizerConfig {
     static final String RESOURCE_EXCLUDE_CONFIG = "kfkwho.resource.exclude";
     static final String COUNT_DENIED_CONFIG = "kfkwho.count.denied";
 
+    /** The broker's own key: which roles this node runs. Read, never declared or validated here. */
+    static final String PROCESS_ROLES_CONFIG = "process.roles";
+
     static final int DEFAULT_TTL_SECONDS = 600;
     static final int DEFAULT_MAX_SERIES = 10_000;
 
@@ -81,7 +84,7 @@ final class AuthorizerConfig {
             .define(TTL_SECONDS_CONFIG, Type.INT, DEFAULT_TTL_SECONDS, Range.atLeast(1), Importance.MEDIUM,
                     "Seconds without a request after which a series is removed; seen again, it starts from zero.")
             .define(MAX_SERIES_CONFIG, Type.INT, DEFAULT_MAX_SERIES, Range.atLeast(1), Importance.MEDIUM,
-                    "Access series that may exist at once; past it, new ones are recorded into __other__.")
+                    "Series of each type, access and client, that may exist at once; past it, new ones are recorded into __other__.")
             .define(LABELS_CONFIG, Type.LIST, DEFAULT_LABELS, AuthorizerConfig::validateLabels, Importance.LOW,
                     "The labels series carry, a subset of " + String.join(", ", KNOWN_LABELS) + ".")
             .define(CLIENT_ID_RULES_CONFIG, Type.LIST, DEFAULT_CLIENT_ID_RULES, AuthorizerConfig::validateRules, Importance.LOW,
@@ -98,19 +101,39 @@ final class AuthorizerConfig {
     private final List<ClientIdRule> clientIdRules;
     private final Pattern resourceExclude;
     private final boolean countDenied;
+    private final boolean broker;
 
-    private AuthorizerConfig(Map<String, Object> values) {
+    private AuthorizerConfig(Map<String, Object> values, boolean broker) {
         ttlSeconds = (Integer) values.get(TTL_SECONDS_CONFIG);
         maxSeries = (Integer) values.get(MAX_SERIES_CONFIG);
         labels = List.copyOf(strings(values.get(LABELS_CONFIG)));
         clientIdRules = strings(values.get(CLIENT_ID_RULES_CONFIG)).stream().map(ClientIdRule::parse).toList();
         resourceExclude = Pattern.compile((String) values.get(RESOURCE_EXCLUDE_CONFIG));
         countDenied = (Boolean) values.get(COUNT_DENIED_CONFIG);
+        this.broker = broker;
     }
 
     /** The broker configuration in, the {@code kfkwho.*} settings out; throws {@link ConfigException}. */
     static AuthorizerConfig parse(Map<String, ?> configs) {
-        return new AuthorizerConfig(CONFIG_DEF.parse(configs));
+        return new AuthorizerConfig(CONFIG_DEF.parse(configs), broker(configs.get(PROCESS_ROLES_CONFIG)));
+    }
+
+    /**
+     * Whether {@value #PROCESS_ROLES_CONFIG} includes {@code broker}: a
+     * comma-separated string, as in {@code server.properties}, or a list.
+     * Without the key, as in tests and on no real KRaft node, it is a broker.
+     */
+    private static boolean broker(Object roles) {
+        if (roles == null) {
+            return true;
+        }
+        Iterable<?> each = roles instanceof Iterable<?> list ? list : List.of(String.valueOf(roles).split(","));
+        for (Object role : each) {
+            if (String.valueOf(role).trim().equals("broker")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     int ttlSeconds() {
@@ -135,6 +158,11 @@ final class AuthorizerConfig {
 
     boolean countDenied() {
         return countDenied;
+    }
+
+    /** False on a controller-only node, where the requests come from brokers and are not recorded. */
+    boolean broker() {
+        return broker;
     }
 
     /** One {@code pattern=>replacement} entry of {@value #CLIENT_ID_RULES_CONFIG}, compiled. */

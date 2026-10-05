@@ -127,6 +127,17 @@ class AuthorizerConfigTest {
     }
 
     @Test
+    void recordsOnlyWhereTheRolesIncludeBroker() {
+        assertTrue(AuthorizerConfig.parse(Map.of()).broker());
+        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "broker")).broker());
+        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "controller, broker")).broker());
+        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, List.of("broker"))).broker());
+        assertFalse(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "controller")).broker());
+        assertFalse(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, List.of("controller")))
+                .broker());
+    }
+
+    @Test
     void docsListEveryKeyWithItsTypeAndDefault() throws IOException {
         Map<String, String> documented = new TreeMap<>();
         for (String line : Files.readAllLines(Path.of("docs/config.md"))) {

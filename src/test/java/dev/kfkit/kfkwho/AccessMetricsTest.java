@@ -220,7 +220,8 @@ class AccessMetricsTest {
     @Test
     void closeUnregistersEverything() throws Exception {
         authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.FETCH), READ_ORDERS);
-        assertEquals(Set.of(ALICE_READS_ORDERS, "kfkwho:type=authorizer"), beans("kfkwho:*"));
+        assertEquals(Set.of(ALICE_READS_ORDERS, "kfkwho:type=authorizer", "kfkwho:type=client,principal=\"User:alice\","
+                + "client-id=billing,listener=PLAINTEXT,security-protocol=PLAINTEXT"), beans("kfkwho:*"));
 
         authorizer.close();
 
