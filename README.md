@@ -63,6 +63,33 @@ For a `group` series the `resource` is the group id, which links client ids
 to consumer groups. Nothing is filtered by client kind; this table moves to
 the metrics reference once `docs/metrics.md` exists.
 
+## Tag values
+
+What clients send is reported as sent, with three exceptions. These rules
+live here and nowhere else; they move to `docs/metrics.md` with the table
+above.
+
+- **Missing.** A null or empty `client-id` or `resource` is `unknown`. Both
+  land in one series, together with a client that really calls itself
+  `unknown`. (The `JmxReporter` drops an empty tag, which would shift the
+  tags after it.)
+- **Too long.** A `principal`, `client-id` or `resource` longer than 256
+  characters (UTF-16 code units) is cut to at most 256: its beginning, `-`,
+  and the first 12 hex digits of the SHA-256 of the whole value in UTF-8. Two
+  long values with a common prefix stay two series, and the same value
+  always gets the same tag. A surrogate pair is never split.
+- **Quoted.** A value with characters an ObjectName does not allow bare
+  (`:`, `,`, `=`, `*`, `"`, non-ASCII letters, ...) is quoted by the
+  `JmxReporter`; `ObjectName.unquote` gives back the value. Nothing else is
+  changed: whitespace, a trailing space included, and unicode are kept, so
+  `платёжка 🚀 ` and `платёжка 🚀` are two clients.
+
+The principal is the whole `KafkaPrincipal`, type included: `User:alice`,
+`User:CN=svc,OU=x,O=y` for an mTLS client, `User:ANONYMOUS`, or
+`Service:billing` from a custom `KafkaPrincipalBuilder`. A cluster action is
+`resource-type=cluster,resource=kafka-cluster`; a request for the `*`
+wildcard topic is `resource-type=topic,resource="\*"`.
+
 ## Usage
 
 Not yet. Installation, configuration and the metrics reference land with the
