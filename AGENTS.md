@@ -54,16 +54,20 @@ mechanism applied to other operations. Read every issue in that light. The map:
 - **The hot path is the hot path.** `authorize()` runs for every topic of
   every Fetch and Produce. One map lookup per action, no allocation beyond the
   key copy when a series is created, the parent's call first. Measure with the JMH benchmark when touching it.
-- **The CPU budget.** Under 1 µs added per action in the steady state and
-  under 3 µs on the request thread on first sight of a key, no allocation
-  per call, under 2% broker CPU under load. Every PR touching
-  `authorize()` quotes the JMH numbers (`./gradlew jmh`, `docs/performance.md`).
+- **The CPU budget.** Stated once, in `docs/performance.md` ("Against the
+  budget"); change it there, not here. Every PR touching `authorize()`
+  quotes the JMH numbers (`./gradlew jmh`) against it.
 - **Fixed tag order in MBean names.** Exporter rules depend on it; changing
-  the order is a breaking change and bumps the major version.
+  the order is a breaking change and bumps the major version. Until v1.0
+  the major version is 0 and breaking changes are listed in the release
+  notes instead.
 - **Apache-2.0 header on every source file.** Copied code carries its
   attribution in `NOTICE`.
 - **Conventional commits, signed.** `feat:`, `fix:`, `docs:`, `test:`,
-  `chore:`; the PR title is the squash commit.
+  `chore:`; the PR title is the squash commit. Expected attribution: the
+  routine's branch commits are authored "Claude" and signed with the
+  sandbox's own SSH key, which GitHub shows as verified; the squash commit
+  on `main` is authored by the maintainer and signed by GitHub.
 - **`./gradlew check` green before a PR**, with `-Werror` on. Say in the PR
   what was verified and how, with numbers; say what was not.
 
@@ -83,14 +87,18 @@ mechanism applied to other operations. Read every issue in that light. The map:
 
 ## Corrections
 
-(none yet)
+- #23 shipped a hard 10 000-series cap that silently dropped everything past it, a stopgap that #24 replaced with a configurable cap, a TTL and a counted `__other__`.
+- #28 made `unknown` the one substitute for a null or empty client id, applied to the lookup key: `-` let two keys share one sensor that could expire under the other.
+- #28 found that the exporter rule's `"?([^,]*?)"?` drops any quoted value containing a comma (an mTLS DN); #11 owns the fix, test rules with commas and `=` inside quotes.
 
 ## Working an issue
 
 1. Read the issue and this file. Write the plan as the first thing in the PR
    body, three lines: **Builds** (what new), **Touches** (what existing),
    **Tests** (what proves it). Then checkbox steps.
-2. Branch `issue-<n>-<slug>`. Implement; `./gradlew check`.
+2. Branch `claude/issue-<n>-<slug>` when the routine works it (the cloud
+   platform's prefix), `issue-<n>-<slug>` when a human does. Implement;
+   `./gradlew check`.
 3. PR body sections: Summary, Plan, Acceptance criteria → tests (table),
    Verified (commands and numbers), Not verified, Diary (interpretations,
    deviations, trade-offs, open questions), `Closes #<n>`.
