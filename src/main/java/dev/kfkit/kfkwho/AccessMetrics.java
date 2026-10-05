@@ -15,6 +15,10 @@
  */
 package dev.kfkit.kfkwho;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +56,12 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  *
  * <p>The tag order is fixed; exporter rules depend on it. The
  * {@code JmxReporter} quotes values that are not valid in an ObjectName.
+ * What a tag value is made of (the rules are in the README, "Tag values"):
+ * a null or empty client id or resource name is {@value #UNKNOWN}, and
+ * counted together with a literal {@value #UNKNOWN}; anything else is kept
+ * as sent, whitespace and unicode included; a principal, client id or
+ * resource longer than {@value #MAX_TAG_LENGTH} characters is cut and ends
+ * in a hash of the whole value, see {@link #truncate}.
  *
  * <p>The number of series is bounded twice. A series that saw no request
  * for the TTL is removed by {@link #expire}; seen again, it starts from zero.
@@ -67,10 +77,16 @@ final class AccessMetrics {
     static final String SELF_GROUP = "authorizer";
 
     /**
-     * The {@code JmxReporter} drops a tag whose value is empty, which would
-     * shift the tags that follow; an empty client id is reported as this.
+     * A null or empty client id or resource name. The {@code JmxReporter}
+     * drops a tag whose value is empty, which would shift the tags that follow.
      */
-    static final String EMPTY = "-";
+    static final String UNKNOWN = "unknown";
+
+    /** The longest principal, client id or resource tag value, in UTF-16 chars, before JMX quoting. */
+    static final int MAX_TAG_LENGTH = 256;
+
+    /** Hex digits of the SHA-256 of the whole value that end a cut one. */
+    private static final int HASH_LENGTH = 12;
 
     /** Every tag but the verdict of the series that takes what is over the cap. */
     static final String OTHER = "__other__";
@@ -118,8 +134,10 @@ final class AccessMetrics {
         for (int i = 0; i < actions.size(); i++) {
             Action action = actions.get(i);
             AuthorizationResult result = results.get(i);
-            Key key = new Key(context.principal(), context.clientId(), action.resourcePattern().resourceType(),
-                    action.resourcePattern().name(), action.operation(), context.requestType(), result);
+            // Normalised before the lookup, so that values with one tag are one series.
+            Key key = new Key(context.principal(), orUnknown(context.clientId()),
+                    action.resourcePattern().resourceType(), orUnknown(action.resourcePattern().name()),
+                    action.operation(), context.requestType(), result);
             Sensor sensor = sensors.get(key);
             if (sensor == null) {
                 if (sensors.size() >= maxSeries) {
@@ -171,8 +189,8 @@ final class AccessMetrics {
     }
 
     private Sensor sensor(Key key) {
-        return sensor(tag(String.valueOf(key.principal())), tag(key.clientId()),
-                key.resourceType().name().toLowerCase(Locale.ROOT).replace('_', '-'), tag(key.resource()),
+        return sensor(truncate(String.valueOf(key.principal())), truncate(key.clientId()),
+                key.resourceType().name().toLowerCase(Locale.ROOT).replace('_', '-'), truncate(key.resource()),
                 key.operation().name(), api(key.api()), key.result());
     }
 
@@ -202,7 +220,36 @@ final class AccessMetrics {
         return ApiKeys.hasId(id) ? ApiKeys.forId(id).name() : UNKNOWN_API;
     }
 
-    private static String tag(String value) {
-        return value == null || value.isEmpty() ? EMPTY : value;
+    /** On the request path: no allocation. */
+    static String orUnknown(String value) {
+        return value == null || value.isEmpty() ? UNKNOWN : value;
+    }
+
+    /**
+     * A value of at most {@value #MAX_TAG_LENGTH} chars: one that is longer
+     * keeps its beginning, then {@code -} and the first {@value #HASH_LENGTH}
+     * hex digits of the SHA-256 of its UTF-8 bytes, so two long values that
+     * share a prefix stay two series. A surrogate pair is never split.
+     * Called once per series, not per request.
+     */
+    static String truncate(String value) {
+        if (value.length() <= MAX_TAG_LENGTH) {
+            return value;
+        }
+        int keep = MAX_TAG_LENGTH - HASH_LENGTH - 1;
+        if (Character.isHighSurrogate(value.charAt(keep - 1))) {
+            keep--;
+        }
+        byte[] hash = sha256().digest(value.getBytes(StandardCharsets.UTF_8));
+        return value.substring(0, keep) + "-" + HexFormat.of().formatHex(hash, 0, HASH_LENGTH / 2);
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            // Every Java platform is required to have it.
+            throw new IllegalStateException(e);
+        }
     }
 }

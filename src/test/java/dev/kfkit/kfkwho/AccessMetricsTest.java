@@ -176,7 +176,7 @@ class AccessMetricsTest {
     void keepsTheTagOrderForAnEmptyClientId() throws Exception {
         authorizer.authorize(RequestContext.of("alice", "", ApiKeys.FETCH), READ_ORDERS);
 
-        assertEquals(Set.of("kfkwho:type=access,principal=\"User:alice\",client-id=-,"
+        assertEquals(Set.of("kfkwho:type=access,principal=\"User:alice\",client-id=unknown,"
                 + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED"), accessBeans());
     }
 
