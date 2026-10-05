@@ -23,8 +23,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import org.apache.kafka.common.acl.AclOperation;
@@ -69,6 +77,19 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * one {@value #OTHER} series per verdict instead. Both are reported under
  * {@code kfkwho:type=authorizer}: {@code series-count},
  * {@code series-evicted-total} and {@code series-overflow-total}.
+ *
+ * <p>The request thread never creates a series: creating one registers
+ * MBeans and costs tens of microseconds. On first sight of a key it leaves a
+ * pending series and hands it to the {@code creator}; requests that arrive
+ * before the series exists are counted in the pending series and recorded
+ * into it once it is created, so each is counted once. At most
+ * {@value #MAX_PENDING} series wait at a time; past that a new key is
+ * recorded into {@value #OTHER}, as past the cap. A pending series counts
+ * against the cap but not in {@code series-count}.
+ *
+ * <p>A request that finds its series takes no lock of ours and allocates
+ * nothing: the lookup key is a per-thread {@link Key} that is copied only
+ * when a series is created.
  */
 final class AccessMetrics {
 
@@ -97,14 +118,22 @@ final class AccessMetrics {
     static final long DEFAULT_TTL_SECONDS = 600;
     static final int DEFAULT_MAX_SERIES = 10_000;
 
-    private record Key(KafkaPrincipal principal, String clientId, ResourceType resourceType, String resource,
-            AclOperation operation, int api, AuthorizationResult result) {
-    }
+    /** Series waiting for the creator, at most; a burst of new keys beyond it goes to {@value #OTHER}. */
+    static final int MAX_PENDING = 1024;
 
     private final Metrics metrics;
     private final long ttlSeconds;
     private final int maxSeries;
-    private final Map<Key, Sensor> sensors = new ConcurrentHashMap<>();
+    private final Executor creator;
+    private final Map<Key, Series> seriesByKey = new ConcurrentHashMap<>();
+    /** The lookup key of each request thread; never stored in {@link #seriesByKey}. */
+    private final ThreadLocal<Key> probes = ThreadLocal.withInitial(Key::new);
+    private final Queue<Series> pending = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger pendingCount = new AtomicInteger();
+    private final AtomicBoolean createScheduled = new AtomicBoolean();
+    /** Guards creating a series against {@link #close}: none is registered after it. */
+    private final Object createLock = new Object();
+    private boolean closed;
     /** The {@value #OTHER} series, by verdict ordinal; created on the first overflow. */
     private final AtomicReferenceArray<Sensor> overflow =
             new AtomicReferenceArray<>(AuthorizationResult.values().length);
@@ -115,40 +144,99 @@ final class AccessMetrics {
      * Under concurrent first sightings {@code maxSeries} may be overshot by
      * the number of request handler threads.
      */
-    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries) {
+    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, Executor creator) {
         this.metrics = metrics;
         this.ttlSeconds = ttlSeconds;
         this.maxSeries = maxSeries;
+        this.creator = creator;
         metrics.addMetric(metrics.metricName("series-count", SELF_GROUP, "Access series that exist, overflow aside"),
-                (Measurable) (config, nowMs) -> sensors.size());
+                (Measurable) (config, nowMs) -> Math.max(0, seriesByKey.size() - pendingCount.get()));
         evicted = metrics.sensor(SELF_GROUP + ":series-evicted");
         evicted.add(metrics.metricName("series-evicted-total", SELF_GROUP, "Access series removed after the TTL"),
                 new CumulativeCount());
         overflowed = metrics.sensor(SELF_GROUP + ":series-overflow");
         overflowed.add(metrics.metricName("series-overflow-total", SELF_GROUP,
-                "Requests recorded into the overflow series because the cap was reached"), new CumulativeCount());
+                "Requests recorded into the overflow series because the cap was reached"
+                        + " or too many series were waiting to be created"), new CumulativeCount());
     }
 
     void record(AuthorizableRequestContext context, List<Action> actions, List<AuthorizationResult> results,
             long nowMs) {
+        Key probe = probes.get();
         for (int i = 0; i < actions.size(); i++) {
             Action action = actions.get(i);
             AuthorizationResult result = results.get(i);
             // Normalised before the lookup, so that values with one tag are one series.
-            Key key = new Key(context.principal(), orUnknown(context.clientId()),
-                    action.resourcePattern().resourceType(), orUnknown(action.resourcePattern().name()),
-                    action.operation(), context.requestType(), result);
-            Sensor sensor = sensors.get(key);
-            if (sensor == null) {
-                if (sensors.size() >= maxSeries) {
-                    sensor = overflow(result);
-                    overflowed.record(1, nowMs);
-                } else {
-                    sensor = sensors.computeIfAbsent(key, this::sensor);
-                }
+            probe.set(context.principal(), orUnknown(context.clientId()), action.resourcePattern().resourceType(),
+                    orUnknown(action.resourcePattern().name()), action.operation(), context.requestType(), result);
+            Series series = seriesByKey.get(probe);
+            if (series != null) {
+                series.record(nowMs);
+            } else {
+                firstSight(probe, result, nowMs);
             }
-            // CumulativeCount and WindowedCount count records; Value keeps the time.
-            sensor.record(nowMs, nowMs);
+        }
+    }
+
+    /** On the request thread: leaves a pending series for the creator, or records into overflow. */
+    private void firstSight(Key probe, AuthorizationResult result, long nowMs) {
+        if (seriesByKey.size() >= maxSeries) {
+            overflow(result, nowMs);
+            return;
+        }
+        if (pendingCount.incrementAndGet() > MAX_PENDING) {
+            pendingCount.decrementAndGet();
+            overflow(result, nowMs);
+            return;
+        }
+        Key key = probe.copy();
+        Series series = new Series(key);
+        Series raced = seriesByKey.putIfAbsent(key, series);
+        if (raced != null) {
+            pendingCount.decrementAndGet();
+            raced.record(nowMs);
+            return;
+        }
+        series.record(nowMs);
+        pending.add(series);
+        if (!createScheduled.get() && createScheduled.compareAndSet(false, true)) {
+            try {
+                creator.execute(this::createPending);
+            } catch (RejectedExecutionException e) {
+                // Closed; nothing will be created any more.
+            }
+        }
+    }
+
+    private void overflow(AuthorizationResult result, long nowMs) {
+        overflow(result).record(nowMs, nowMs);
+        overflowed.record(1, nowMs);
+    }
+
+    /**
+     * On the creator: creates the pending series and records what each
+     * counted meanwhile. A series queued after this started may be left to
+     * the run its request scheduled, so that a stream of new keys cannot hold
+     * the thread that also expires series.
+     */
+    void createPending() {
+        createScheduled.set(false);
+        Series series;
+        for (int i = 0; i < MAX_PENDING && (series = pending.poll()) != null; i++) {
+            try {
+                synchronized (createLock) {
+                    if (closed) {
+                        return;
+                    }
+                    series.sensor = sensor(series.key);
+                }
+                series.flush();
+            } catch (RuntimeException e) {
+                // What it counted is lost; the next request for the key tries again.
+                seriesByKey.remove(series.key, series);
+            } finally {
+                pendingCount.decrementAndGet();
+            }
         }
     }
 
@@ -156,11 +244,12 @@ final class AccessMetrics {
      * Removes the series, overflow included, that saw no request for the
      * TTL. A request racing with the removal of its series may be recorded
      * into the removed one and lost; that series had been idle for the TTL.
+     * A pending series is left to the creator.
      */
     void expire() {
-        for (Map.Entry<Key, Sensor> entry : sensors.entrySet()) {
-            Sensor sensor = entry.getValue();
-            if (sensor.hasExpired() && sensors.remove(entry.getKey(), sensor)) {
+        for (Map.Entry<Key, Series> entry : seriesByKey.entrySet()) {
+            Sensor sensor = entry.getValue().sensor;
+            if (sensor != null && sensor.hasExpired() && seriesByKey.remove(entry.getKey(), entry.getValue())) {
                 metrics.removeSensor(sensor.name());
                 evicted.record(1);
             }
@@ -169,6 +258,110 @@ final class AccessMetrics {
             Sensor sensor = overflow.get(i);
             if (sensor != null && sensor.hasExpired() && overflow.compareAndSet(i, sensor, null)) {
                 metrics.removeSensor(sensor.name());
+            }
+        }
+    }
+
+    /** No series is created after this returns; closing {@link Metrics} removes those that were. */
+    void close() {
+        synchronized (createLock) {
+            closed = true;
+        }
+        pending.clear();
+    }
+
+    /**
+     * The identity of a series. The per-thread probe is set for every action;
+     * a copy, never changed again, is what {@link #seriesByKey} keeps.
+     */
+    private static final class Key {
+        private KafkaPrincipal principal;
+        private String clientId;
+        private ResourceType resourceType;
+        private String resource;
+        private AclOperation operation;
+        private int api;
+        private AuthorizationResult result;
+        private int hash;
+
+        void set(KafkaPrincipal principal, String clientId, ResourceType resourceType, String resource,
+                AclOperation operation, int api, AuthorizationResult result) {
+            this.principal = principal;
+            this.clientId = clientId;
+            this.resourceType = resourceType;
+            this.resource = resource;
+            this.operation = operation;
+            this.api = api;
+            this.result = result;
+            int h = Objects.hashCode(principal);
+            h = 31 * h + clientId.hashCode();
+            h = 31 * h + resourceType.hashCode();
+            h = 31 * h + resource.hashCode();
+            h = 31 * h + operation.hashCode();
+            h = 31 * h + api;
+            this.hash = 31 * h + result.hashCode();
+        }
+
+        Key copy() {
+            Key key = new Key();
+            key.set(principal, clientId, resourceType, resource, operation, api, result);
+            return key;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof Key k && hash == k.hash && api == k.api && resourceType == k.resourceType
+                    && operation == k.operation && result == k.result && resource.equals(k.resource)
+                    && clientId.equals(k.clientId) && Objects.equals(principal, k.principal);
+        }
+    }
+
+    /**
+     * A series, created or pending. Until the creator sets {@link #sensor},
+     * requests are counted in {@link #pending}; the creator then swaps in
+     * {@link #CREATED} and records the count, so a request is counted either
+     * there or directly into the sensor, never both and never neither.
+     */
+    private static final class Series {
+        private static final long CREATED = Long.MIN_VALUE;
+
+        final Key key;
+        volatile Sensor sensor;
+        private final AtomicLong pending = new AtomicLong();
+        /** The time of the latest request counted in {@link #pending}. */
+        private volatile long pendingMs;
+
+        Series(Key key) {
+            this.key = key;
+        }
+
+        void record(long nowMs) {
+            Sensor s = sensor;
+            if (s == null) {
+                pendingMs = nowMs;
+                for (long n = pending.get(); n != CREATED; n = pending.get()) {
+                    if (pending.compareAndSet(n, n + 1)) {
+                        return;
+                    }
+                }
+                // Created between the two reads; the sensor was set before CREATED.
+                s = sensor;
+            }
+            // CumulativeCount and WindowedCount count records; Value keeps the time.
+            s.record(nowMs, nowMs);
+        }
+
+        /** After {@link #sensor} is set. */
+        void flush() {
+            long n = pending.getAndSet(CREATED);
+            long ms = pendingMs;
+            for (long i = 0; i < n; i++) {
+                sensor.record(ms, ms);
             }
         }
     }
@@ -189,9 +382,9 @@ final class AccessMetrics {
     }
 
     private Sensor sensor(Key key) {
-        return sensor(truncate(String.valueOf(key.principal())), truncate(key.clientId()),
-                key.resourceType().name().toLowerCase(Locale.ROOT).replace('_', '-'), truncate(key.resource()),
-                key.operation().name(), api(key.api()), key.result());
+        return sensor(truncate(String.valueOf(key.principal)), truncate(key.clientId),
+                key.resourceType.name().toLowerCase(Locale.ROOT).replace('_', '-'), truncate(key.resource),
+                key.operation.name(), api(key.api), key.result);
     }
 
     private Sensor sensor(String principal, String clientId, String resourceType, String resource, String operation,

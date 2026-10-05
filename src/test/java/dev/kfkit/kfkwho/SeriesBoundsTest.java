@@ -51,7 +51,7 @@ class SeriesBoundsTest {
 
     private final ManualTime time = new ManualTime();
     private final Metrics pluginMetrics = new Metrics();
-    private final MeteredStandardAuthorizer authorizer = new MeteredStandardAuthorizer(time);
+    private final MeteredStandardAuthorizer authorizer = new MeteredStandardAuthorizer(time, Runnable::run);
 
     @AfterEach
     void stop() throws Exception {
