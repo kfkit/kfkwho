@@ -2,8 +2,8 @@
 
 Who talks to what on your Apache Kafka® cluster: a drop-in replacement for the
 broker's `StandardAuthorizer` that publishes JMX metrics per principal, client
-id, topic and operation, with Prometheus JMX Exporter rules and a Grafana
-dashboard to read them.
+id, topic, operation and request type, with Prometheus JMX Exporter rules and a
+Grafana dashboard to read them.
 
 > Status: pre-alpha. The skeleton compiles and the plan is in the issues;
 > nothing has run on a real cluster yet.
@@ -17,6 +17,11 @@ are per topic with no client, and client telemetry (KIP-714) needs new clients
 and a reporter plugin. The question "which clients read this topic, and when
 did they last show up?" is answered today by grepping request logs.
 
+The question kfkwho answers first is **who produces to which topic**: the
+producers of a topic are what you need to know before you change, move or
+delete it. Consumers come right after, and admins are the same mechanism
+applied to other operations; everything the broker authorizes is counted.
+
 The authorizer is the one hook that sees both sides of every request, for
 clients of any version, at no extra cost. `kfkwho` extends the standard one:
 the verdict stays the broker's, the observation becomes a metric.
@@ -25,15 +30,38 @@ the verdict stays the broker's, the observation becomes a metric.
 
 - `dev.kfkit.kfkwho.MeteredStandardAuthorizer`: `StandardAuthorizer` plus
   metrics. Set `authorizer.class.name` and nothing else changes.
+- Producers first: the `api` tag tells a client that really produced
+  (`WRITE`, `api=PRODUCE`) from one that only fetched metadata about the topic
+  (`DESCRIBE`, `api=METADATA`). Consumers and their groups are in the same
+  series, see [Reading the series](#reading-the-series).
 - MBeans with a fixed tag order, so exporter rules are one line:
 
-      kfkwho:type=access,principal=…,client-id=…,resource-type=topic,resource=…,operation=…,result=ALLOWED
+      kfkwho:type=access,principal=…,client-id=…,resource-type=topic,resource=…,operation=…,api=…,result=ALLOWED
       kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=…
 
 - Cardinality under control: idle series expire, a hard cap folds the rest into
   `__other__`, client ids are normalised by rules you configure, internal
   topics are excluded.
 - `jmx-exporter/kfkwho.yml` and `grafana/kfkwho.json`.
+
+## Reading the series
+
+`api` is the name of the request's API key, as the broker's `ApiKeys` spell
+it; an id the broker's client library does not know is `api=UNKNOWN`. One
+request may authorize several actions; each is its own series. What a client
+looks like, by kind (`resource-type`, `operation`/`api`):
+
+| Client | Series |
+|---|---|
+| Producer | `topic`, `WRITE`/`PRODUCE` |
+| Idempotent producer | as above, plus `cluster`, `IDEMPOTENT_WRITE`/`INIT_PRODUCER_ID` |
+| Transactional producer | as above, plus `topic`, `WRITE`/`ADD_PARTITIONS_TO_TXN` and `transactional-id`, `WRITE`/`INIT_PRODUCER_ID` |
+| A client that only fetched metadata | `topic`, `DESCRIBE`/`METADATA`: it has not produced |
+| Consumer | `topic`, `READ`/`FETCH`, plus `group`, `READ` with `OFFSET_COMMIT`, `JOIN_GROUP`, `HEARTBEAT` (`CONSUMER_GROUP_HEARTBEAT` for KIP-848 groups) |
+
+For a `group` series the `resource` is the group id, which links client ids
+to consumer groups. Nothing is filtered by client kind; this table moves to
+the metrics reference once `docs/metrics.md` exists.
 
 ## Usage
 
