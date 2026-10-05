@@ -115,9 +115,6 @@ final class AccessMetrics {
     /** The {@code api} of a request type that is not an {@link ApiKeys} id. */
     static final String UNKNOWN_API = "UNKNOWN";
 
-    static final long DEFAULT_TTL_SECONDS = 600;
-    static final int DEFAULT_MAX_SERIES = 10_000;
-
     /** Series waiting for the creator, at most; a burst of new keys beyond it goes to {@value #OTHER}. */
     static final int MAX_PENDING = 1024;
 

@@ -65,7 +65,7 @@ public class AuthorizeBenchmark {
         @Setup(Level.Trial)
         public void setUp() {
             parent = Fixture.parent();
-            metered = Fixture.metered(AccessMetrics.DEFAULT_MAX_SERIES);
+            metered = Fixture.metered(AuthorizerConfig.DEFAULT_MAX_SERIES);
         }
 
         @TearDown(Level.Trial)

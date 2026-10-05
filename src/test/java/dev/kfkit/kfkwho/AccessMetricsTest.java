@@ -200,14 +200,14 @@ class AccessMetricsTest {
 
     @Test
     void capsTheNumberOfSeries() throws Exception {
-        for (int i = 0; i <= AccessMetrics.DEFAULT_MAX_SERIES; i++) {
+        for (int i = 0; i <= AuthorizerConfig.DEFAULT_MAX_SERIES; i++) {
             var topic = new ResourcePattern(ResourceType.TOPIC, "orders-" + i, PatternType.LITERAL);
             authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.FETCH),
                     List.of(new Action(AclOperation.READ, topic, 1, true, true)));
         }
 
         // The default cap, plus the series the rest is folded into.
-        assertEquals(AccessMetrics.DEFAULT_MAX_SERIES + 1, accessBeans().size());
+        assertEquals(AuthorizerConfig.DEFAULT_MAX_SERIES + 1, accessBeans().size());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName("kfkwho:type=access,principal=__other__,"
                 + "client-id=__other__,resource-type=__other__,resource=__other__,operation=__other__,api=__other__,"
                 + "result=ALLOWED"),

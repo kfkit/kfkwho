@@ -140,7 +140,7 @@ class SeriesCreationTest {
 
     @Test
     void aPendingSeriesCountsAgainstTheCapButNotInSeriesCount() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.MAX_SERIES_CONFIG, "2"));
+        start(Map.of(AuthorizerConfig.MAX_SERIES_CONFIG, "2"));
         readTopic("orders");
         readTopic("billing");
         readTopic("payments");
@@ -181,7 +181,7 @@ class SeriesCreationTest {
 
     @Test
     void aPendingSeriesIsNotExpired() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
 
         time.advanceSeconds(TTL_SECONDS + 1);

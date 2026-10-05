@@ -47,16 +47,15 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * wrapper would silently never receive them.
  *
  * <p>Configure with {@code authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer}.
- * A series that saw no request for {@value #TTL_SECONDS_CONFIG} (default
- * 600) disappears; past {@value #MAX_SERIES_CONFIG} series (default 10000),
- * new ones are folded into an overflow series. Series are created and
+ * A series that saw no request for {@code kfkwho.ttl.seconds} (default
+ * 600) disappears; past {@code kfkwho.max.series} series (default 10000),
+ * new ones are folded into an overflow series. Every setting is declared in
+ * {@link AuthorizerConfig} and listed in {@code docs/config.md}; a wrong value
+ * fails {@link #configure} with a message naming the key. Series are created and
  * expired on one background thread, {@code kfkwho-series}, never on the
  * request thread.
  */
 public class MeteredStandardAuthorizer extends StandardAuthorizer {
-
-    static final String TTL_SECONDS_CONFIG = "kfkwho.ttl.seconds";
-    static final String MAX_SERIES_CONFIG = "kfkwho.max.series";
 
     /** How often idle series are looked for, at most; a shorter TTL looks more often. */
     private static final long MAX_EXPIRY_PERIOD_SECONDS = 30;
@@ -84,19 +83,21 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
 
     @Override
     public void configure(Map<String, ?> configs) {
+        // A wrong value fails here, before the parent or any metric is set up.
+        AuthorizerConfig config = AuthorizerConfig.parse(configs);
         super.configure(configs);
         metrics = new Metrics(new MetricConfig(), List.of(new JmxReporter()), time,
                 new KafkaMetricsContext(AccessMetrics.JMX_PREFIX));
         // Metrics registers its own count of metrics; it is not ours to publish.
         metrics.removeMetric(metrics.metricName("count", "kafka-metrics-count"));
-        long ttlSeconds = longConfig(configs, TTL_SECONDS_CONFIG, AccessMetrics.DEFAULT_TTL_SECONDS);
+        long ttlSeconds = config.ttlSeconds();
         background = Executors.newSingleThreadScheduledExecutor(task -> {
             Thread thread = new Thread(task, "kfkwho-series");
             thread.setDaemon(true);
             return thread;
         });
         access = new AccessMetrics(metrics, ttlSeconds,
-                (int) longConfig(configs, MAX_SERIES_CONFIG, AccessMetrics.DEFAULT_MAX_SERIES),
+                config.maxSeries(),
                 creator != null ? creator : background);
         long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
         background.scheduleAtFixedRate(() -> {
@@ -135,11 +136,5 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
                 metrics.close();
             }
         }
-    }
-
-    // Validation is a separate issue; until then a value that is not a number fails configure().
-    private static long longConfig(Map<String, ?> configs, String name, long defaultValue) {
-        Object value = configs.get(name);
-        return value == null ? defaultValue : Long.parseLong(value.toString().trim());
     }
 }

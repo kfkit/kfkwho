@@ -61,7 +61,7 @@ class SeriesBoundsTest {
 
     @Test
     void expiresAnIdleSeriesAndKeepsABusyOne() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
         readTopic("billing");
 
@@ -82,7 +82,7 @@ class SeriesBoundsTest {
 
     @Test
     void keepsASeriesUntilTheTtlHasPassed() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
 
         time.advanceSeconds(TTL_SECONDS);
@@ -96,7 +96,7 @@ class SeriesBoundsTest {
 
     @Test
     void foldsSeriesPastTheCapIntoOverflow() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.MAX_SERIES_CONFIG, "3"));
+        start(Map.of(AuthorizerConfig.MAX_SERIES_CONFIG, "3"));
         for (String topic : List.of("orders", "billing", "payments")) {
             readTopic(topic);
         }
@@ -124,7 +124,7 @@ class SeriesBoundsTest {
 
     @Test
     void anEvictedSeriesStartsFromZero() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         ObjectName orders = new ObjectName(topicSeries("orders"));
         readTopic("orders");
         readTopic("orders");
@@ -142,8 +142,8 @@ class SeriesBoundsTest {
 
     @Test
     void evictionMakesRoomUnderTheCap() throws Exception {
-        start(Map.of(MeteredStandardAuthorizer.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS),
-                MeteredStandardAuthorizer.MAX_SERIES_CONFIG, "1"));
+        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS),
+                AuthorizerConfig.MAX_SERIES_CONFIG, "1"));
         readTopic("orders");
         readTopic("billing");
         assertEquals(Set.of(topicSeries("orders"), OTHER_ALLOWED), accessBeans());
@@ -161,13 +161,13 @@ class SeriesBoundsTest {
         start(Map.of());
         readTopic("orders");
 
-        time.advanceSeconds(AccessMetrics.DEFAULT_TTL_SECONDS);
+        time.advanceSeconds(AuthorizerConfig.DEFAULT_TTL_SECONDS);
         authorizer.expireIdleSeries();
         assertEquals(Set.of(topicSeries("orders")), accessBeans());
         time.advanceSeconds(1);
         authorizer.expireIdleSeries();
         assertEquals(Set.of(), accessBeans());
-        assertEquals(10_000, AccessMetrics.DEFAULT_MAX_SERIES);
+        assertEquals(10_000, AuthorizerConfig.DEFAULT_MAX_SERIES);
     }
 
     private void start(Map<String, String> configs) {
