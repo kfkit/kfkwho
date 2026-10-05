@@ -60,6 +60,29 @@ bars. Run on its own (`java -jar build/libs/*-jmh.jar
 'AuthorizeBenchmark\.(metered|parent)$' -prof gc`), the same build measured
 459 ± 56 ns against the parent's 337 ± 53 ns: 122 ns added, as before.
 
+### With the client series
+
+The client series adds one lookup per `authorize` call, not per action: a
+per-thread probe set from the principal, the normalised client id, the
+listener and the security protocol, and one `ConcurrentHashMap` get. Measured
+on the same machine as above, 2026-10-05, alternating `main` at 05f59c1 and
+the change, each build twice (`java -jar build/libs/*-jmh.jar
+'AuthorizeBenchmark\.(meteredChurn|parentChurn|metered|parent)$' -prof gc`),
+added over the parent in the same run:
+
+| Scenario | `main` | With client series |
+|---|---:|---:|
+| Steady state | 166, 206 ns | 332, 304 ns |
+| First sight | 1.97, 2.64 µs (± 3.6, 5.8) | 2.39, 2.16 µs (± 2.2, 5.3) |
+| Allocation, steady state | +0 B/op | +0 B/op |
+
+About 130 ns more in the steady state, within the budget. On first sight
+of an access key the client series of a known client is the same lookup; the
+first-sight error bars are larger than any difference between the builds. A
+full `./gradlew jmh` run of the change gave 3.4 ± 2.5 µs added on first
+sight, against 2.8 ± 4.6 µs for `main` in the run just before it: this VM is
+noisy here, and the figure should be checked on a quieter machine.
+
 ## Against the budget
 
 The budget, the same as in `AGENTS.md`: under 1 µs added per action in the
