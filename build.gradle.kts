@@ -36,6 +36,8 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    // TagValuesTest logs through the API to prove it captures what the broker libraries log.
+    testCompileOnly("org.slf4j:slf4j-api:2.0.20")
     testRuntimeOnly("org.slf4j:slf4j-simple:2.0.20")
 
     jmh("org.apache.kafka:kafka-metadata:$kafkaVersion")
