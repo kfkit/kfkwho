@@ -1,7 +1,7 @@
 plugins {
     java
     `jvm-test-suite`
-    id("me.champeau.jmh") version "0.7.3"
+    id("me.champeau.jmh") version "0.7.4"
 }
 
 group = "dev.kfkit"
@@ -10,7 +10,7 @@ version = "0.1.0-SNAPSHOT"
 // The broker provides the Kafka classes at runtime; the jar ships without
 // dependencies. Compile against the newest supported release; the test matrix
 // in CI runs the jar on every supported broker.
-val kafkaVersion = "4.3.1"
+val kafkaVersion = "4.4.0"
 
 // The broker image the integration test runs the jar on: -PbrokerVersion=4.1.2.
 val brokerVersion = providers.gradleProperty("brokerVersion").getOrElse(kafkaVersion)
