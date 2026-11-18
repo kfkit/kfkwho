@@ -1,0 +1,12 @@
+kfkwho release hashes, for timestamping.
+
+Repository: https://github.com/kfkit/kfkwho
+Artifact:   kfkwho-X.Y.Z.jar on the GitHub release of each tag
+Copyright:  2026 Ivan Abramov, Apache-2.0
+
+Each line names a signed git tag, the tag object, the commit it points at
+(a hash of the whole source tree), the SHA-256 of the source archive
+produced by `git archive --format=tar <tag>` with git 2.55.0, and the
+SHA-256 of the released jar.
+
+No release yet.
