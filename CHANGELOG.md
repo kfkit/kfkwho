@@ -22,3 +22,11 @@ the jar from `main` knows what to change.
   `TOPIC`, `GROUP`, `CLUSTER`, `TRANSACTIONAL_ID`, where it was `topic`,
   `group`, `cluster`, `transactional-id`. Prometheus queries and dashboards
   that filter on `resource_type="topic"` need `resource_type="TOPIC"`.
+
+### Added
+
+- `AccessRecorder`, a public final class with which another authorizer
+  publishes the same MBeans, tags and `kfkwho.*` settings from its own
+  verdicts: `create(Map)`, `record(...)`, `close()`. What is stable is in
+  `docs/embedding.md`. `MeteredStandardAuthorizer` now records through it,
+  with no change in what it publishes.

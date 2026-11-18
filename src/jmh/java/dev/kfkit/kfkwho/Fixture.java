@@ -56,7 +56,7 @@ final class Fixture {
 
     static MeteredStandardAuthorizer metered(int maxSeries) {
         return ready(new MeteredStandardAuthorizer(),
-                Map.of(AuthorizerConfig.MAX_SERIES_CONFIG, String.valueOf(maxSeries)));
+                Map.of(RecorderConfig.MAX_SERIES_CONFIG, String.valueOf(maxSeries)));
     }
 
     static List<Action> read(String topic) {

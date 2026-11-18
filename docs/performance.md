@@ -83,6 +83,25 @@ full `./gradlew jmh` run of the change gave 3.4 ± 2.5 µs added on first
 sight, against 2.8 ± 4.6 µs for `main` in the run just before it: this VM is
 noisy here, and the figure should be checked on a quieter machine.
 
+### With the recorder
+
+`MeteredStandardAuthorizer` records through `AccessRecorder` (#43): one more
+call between `authorize` and the lookup, and a null check on the recorder.
+Measured on the same kind of machine as above, 2026-11-18, JDK 17.0.20,
+Kafka 4.4.0, alternating `main` at bea4344 and the change
+(`java -jar build/libs/*-jmh.jar
+'AuthorizeBenchmark\.(meteredChurn|parentChurn|metered|parent)$' -prof gc`),
+added over the parent in the same run:
+
+| Scenario | `main` | With the recorder |
+|---|---:|---:|
+| Steady state | 251, 213 ns | 255, 233 ns |
+| First sight | 1.08, 1.11 µs | 1.17, 1.07 µs |
+| Allocation, steady state | +0 B/op | +0 B/op |
+
+The difference is within the error bars (± 57 to 291 ns on the metered
+steady state): the seam adds no allocation and no lookup.
+
 ## Against the budget
 
 The budget, the same as in `AGENTS.md`: under 1 µs added per action in the

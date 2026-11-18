@@ -43,7 +43,7 @@ import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 
-import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
+import dev.kfkit.kfkwho.RecorderConfig.ClientIdRule;
 
 /**
  * Two types of series, each its own {@link SeriesSet} with the TTL and cap

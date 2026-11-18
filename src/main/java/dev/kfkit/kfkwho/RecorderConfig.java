@@ -30,7 +30,7 @@ import org.apache.kafka.common.config.ConfigException;
 /**
  * Every {@code kfkwho.*} setting, declared once with its type, default,
  * validator and documentation. {@code docs/config.md} lists the same keys
- * and defaults; {@code AuthorizerConfigTest} fails when the two disagree.
+ * and defaults; {@code RecorderConfigTest} fails when the two disagree.
  *
  * <p>{@link #parse} takes the whole broker configuration, as
  * {@code configure(Map)} receives it, and reads only the keys declared
@@ -41,7 +41,7 @@ import org.apache.kafka.common.config.ConfigException;
  * {@code AbstractConfig}: the latter would also resolve the broker's
  * {@code config.providers} a second time.
  */
-final class AuthorizerConfig {
+final class RecorderConfig {
 
     static final String SERIES_TTL_SECONDS_CONFIG = "kfkwho.series.ttl.seconds";
     static final String MAX_SERIES_CONFIG = "kfkwho.max.series";
@@ -85,12 +85,12 @@ final class AuthorizerConfig {
                     "Seconds without a request after which a series is removed; seen again, it starts from zero.")
             .define(MAX_SERIES_CONFIG, Type.INT, DEFAULT_MAX_SERIES, Range.atLeast(1), Importance.MEDIUM,
                     "Series of each type, access and client, that may exist at once; past it, new ones are recorded into __other__.")
-            .define(TAGS_CONFIG, Type.LIST, DEFAULT_TAGS, AuthorizerConfig::validateTags, Importance.LOW,
+            .define(TAGS_CONFIG, Type.LIST, DEFAULT_TAGS, RecorderConfig::validateTags, Importance.LOW,
                     "The tags series carry, a subset of " + String.join(", ", KNOWN_TAGS) + ".")
-            .define(CLIENT_ID_RULES_CONFIG, Type.LIST, DEFAULT_CLIENT_ID_RULES, AuthorizerConfig::validateRules, Importance.LOW,
+            .define(CLIENT_ID_RULES_CONFIG, Type.LIST, DEFAULT_CLIENT_ID_RULES, RecorderConfig::validateRules, Importance.LOW,
                     "Rules that rewrite a client id before it becomes a tag value, each pattern" + RULE_SEPARATOR
                             + "replacement in Java regex syntax; the first whose pattern matches the whole id applies.")
-            .define(RESOURCE_EXCLUDE_CONFIG, Type.STRING, "__.*", AuthorizerConfig::validateRegex, Importance.LOW,
+            .define(RESOURCE_EXCLUDE_CONFIG, Type.STRING, "__.*", RecorderConfig::validateRegex, Importance.LOW,
                     "Resources whose whole name matches this Java regex are not recorded.")
             .define(COUNT_DENIED_CONFIG, Type.BOOLEAN, true, Importance.LOW,
                     "Whether denied requests are recorded as well as allowed ones.");
@@ -103,7 +103,7 @@ final class AuthorizerConfig {
     private final boolean countDenied;
     private final boolean broker;
 
-    private AuthorizerConfig(Map<String, Object> values, boolean broker) {
+    private RecorderConfig(Map<String, Object> values, boolean broker) {
         ttlSeconds = (Integer) values.get(SERIES_TTL_SECONDS_CONFIG);
         maxSeries = (Integer) values.get(MAX_SERIES_CONFIG);
         tags = List.copyOf(strings(values.get(TAGS_CONFIG)));
@@ -114,8 +114,8 @@ final class AuthorizerConfig {
     }
 
     /** The broker configuration in, the {@code kfkwho.*} settings out; throws {@link ConfigException}. */
-    static AuthorizerConfig parse(Map<String, ?> configs) {
-        return new AuthorizerConfig(CONFIG_DEF.parse(configs), broker(configs.get(PROCESS_ROLES_CONFIG)));
+    static RecorderConfig parse(Map<String, ?> configs) {
+        return new RecorderConfig(CONFIG_DEF.parse(configs), broker(configs.get(PROCESS_ROLES_CONFIG)));
     }
 
     /**

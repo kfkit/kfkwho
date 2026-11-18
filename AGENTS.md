@@ -13,7 +13,7 @@ mechanism applied to other operations. Read every issue in that light. The map:
 
 | Path | What |
 |---|---|
-| `src/main/java/dev/kfkit/kfkwho/` | the authorizer and its metrics; one jar, no dependencies |
+| `src/main/java/dev/kfkit/kfkwho/` | the authorizer and its metrics; one jar, no dependencies. `AccessRecorder` records whatever verdict it is handed; `MeteredStandardAuthorizer` hands it the parent's |
 | `src/test/java/dev/kfkit/kfkwho/` | unit tests that drive the real `StandardAuthorizer` without a broker |
 | `jmx-exporter/` | Prometheus JMX Exporter rules |
 | `grafana/` | the dashboard |
@@ -28,8 +28,10 @@ mechanism applied to other operations. Read every issue in that light. The map:
   It is a trademark of the ASF; "for Apache Kafka®" in prose is fine.
 - **Russian, or any language but English,** anywhere in the repository: code,
   comments, commits, PR text, issues.
-- **Changing the verdict.** `authorize()` returns exactly what the parent
-  returns. This project observes.
+- **Changing the verdict.** `MeteredStandardAuthorizer.authorize()` returns
+  exactly what the parent returns. This project observes. `AccessRecorder`
+  records whatever verdict it is handed and never makes one; deciding is
+  the embedding authorizer's business (`docs/embedding.md`).
 - **Unbounded label sets.** Every new metric dimension needs a cap, a TTL or
   an allowlist, and a test that proves the bound.
 - **Secrets, hostnames, topic names or configs from any real deployment.**

@@ -133,8 +133,8 @@ class MetricsDocTest {
      */
     private void registerEveryType() throws Exception {
         authorizer.configure(Map.of(StandardAuthorizer.SUPER_USERS_CONFIG, "User:alice",
-                AuthorizerConfig.TAGS_CONFIG, String.join(",", AuthorizerConfig.KNOWN_TAGS),
-                AuthorizerConfig.MAX_SERIES_CONFIG, "1"));
+                RecorderConfig.TAGS_CONFIG, String.join(",", RecorderConfig.KNOWN_TAGS),
+                RecorderConfig.MAX_SERIES_CONFIG, "1"));
         authorizer.withPluginMetrics(new PluginMetricsImpl(pluginMetrics, Map.of()));
         authorizer.completeInitialLoad();
         List<Action> readOrders = List.of(new Action(AclOperation.READ,

@@ -19,14 +19,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
-import org.apache.kafka.common.metrics.JmxReporter;
-import org.apache.kafka.common.metrics.KafkaMetricsContext;
-import org.apache.kafka.common.metrics.MetricConfig;
-import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.metadata.authorizer.StandardAuthorizer;
 import org.apache.kafka.server.authorizer.Action;
@@ -50,27 +43,26 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * A series that saw no request for {@code kfkwho.series.ttl.seconds} (default
  * 600) disappears; past {@code kfkwho.max.series} series (default 10000),
  * new ones are folded into an overflow series. Every setting is declared in
- * {@link AuthorizerConfig} and listed in {@code docs/config.md}; a wrong value
+ * {@link RecorderConfig} and listed in {@code docs/config.md}; a wrong value
  * fails {@link #configure} with a message naming the key. Series are created and
  * expired on one background thread, {@code kfkwho-series}, never on the
  * request thread.
  *
+ * <p>The recording is an {@link AccessRecorder}, created in {@link #configure},
+ * handed the parent's verdicts in {@link #authorize} and closed in
+ * {@link #close}; another authorizer can publish the same metrics through it.
+ *
  * <p>Only a broker records. On a node whose {@code process.roles} does not
  * include {@code broker}, a controller, the requests come from brokers and
- * would be noise: no {@link Metrics} is created, no thread started and no
+ * would be noise: no metrics registry is created, no thread started and no
  * MBean registered, and {@link #authorize} is the parent's alone.
  */
 public class MeteredStandardAuthorizer extends StandardAuthorizer {
 
-    /** How often idle series are looked for, at most; a shorter TTL looks more often. */
-    private static final long MAX_EXPIRY_PERIOD_SECONDS = 30;
-
     private final Time time;
     /** Where new series are created; null for the background thread. */
     private final Executor creator;
-    private Metrics metrics;
-    private AccessMetrics access;
-    private ScheduledExecutorService background;
+    private AccessRecorder recorder;
 
     public MeteredStandardAuthorizer() {
         this(Time.SYSTEM);
@@ -89,46 +81,24 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
     @Override
     public void configure(Map<String, ?> configs) {
         // A wrong value fails here, before the parent or any metric is set up.
-        AuthorizerConfig config = AuthorizerConfig.parse(configs);
+        RecorderConfig.parse(configs);
         super.configure(configs);
-        if (!config.broker()) {
-            return;
-        }
-        metrics = new Metrics(new MetricConfig(), List.of(new JmxReporter()), time,
-                new KafkaMetricsContext(AccessMetrics.JMX_PREFIX));
-        // Metrics registers its own count of metrics; it is not ours to publish.
-        metrics.removeMetric(metrics.metricName("count", "kafka-metrics-count"));
-        long ttlSeconds = config.ttlSeconds();
-        background = Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "kfkwho-series");
-            thread.setDaemon(true);
-            return thread;
-        });
-        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.tags(), config.clientIdRules(),
-                config.resourceExclude(), creator != null ? creator : background);
-        long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
-        background.scheduleAtFixedRate(() -> {
-            try {
-                expireIdleSeries();
-            } catch (RuntimeException e) {
-                // A task that throws is never run again; the next round may succeed.
-            }
-        }, period, period, TimeUnit.SECONDS);
+        recorder = AccessRecorder.create(configs, time, creator);
     }
 
     /** Runs on the background thread; package-private so tests can drive it with their own clock. */
     void expireIdleSeries() {
-        if (access != null) {
-            access.expire();
+        if (recorder != null) {
+            recorder.expireIdleSeries();
         }
     }
 
     @Override
     public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext, List<Action> actions) {
         List<AuthorizationResult> results = super.authorize(requestContext, actions);
-        AccessMetrics access = this.access;
-        if (access != null) {
-            access.record(requestContext, actions, results, time.milliseconds());
+        AccessRecorder recorder = this.recorder;
+        if (recorder != null) {
+            recorder.record(requestContext, actions, results);
         }
         return results;
     }
@@ -138,14 +108,8 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
         try {
             super.close();
         } finally {
-            if (access != null) {
-                access.close();
-            }
-            if (background != null) {
-                background.shutdownNow();
-            }
-            if (metrics != null) {
-                metrics.close();
+            if (recorder != null) {
+                recorder.close();
             }
         }
     }

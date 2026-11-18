@@ -3,12 +3,12 @@
 kfkwho reads its settings from the broker configuration, next to
 `authorizer.class.name`: in `server.properties`, or as `KAFKA_KFKWHO_…`
 environment variables in the `apache/kafka` image. Every key is declared in
-one `ConfigDef` (`AuthorizerConfig`); a wrong value fails broker start with a
+one `ConfigDef` (`RecorderConfig`); a wrong value fails broker start with a
 `ConfigException` that names the key. Settings of the parent
 `StandardAuthorizer` (`super.users`, `allow.everyone.if.no.acl.found`) work as
 before.
 
-`AuthorizerConfigTest` fails when this table and the `ConfigDef` disagree on
+`RecorderConfigTest` fails when this table and the `ConfigDef` disagree on
 keys, types or defaults; change both together.
 
 | Key | Type | Default | Meaning |
