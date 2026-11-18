@@ -25,6 +25,11 @@ the jar from `main` knows what to change.
 
 ### Added
 
+- A release workflow: a tag `vX.Y.Z` publishes `kfkwho-X.Y.Z.jar` on the
+  GitHub releases page with its SHA-256 and a cosign keyless signature
+  (`.sigstore.json`); how to verify it is in `docs/install.md`, how to cut
+  one in `docs/releasing.md`. The build takes a release version from
+  `-Pversion=X.Y.Z` and refuses anything else.
 - `AccessRecorder`, a public final class with which another authorizer
   publishes the same MBeans, tags and `kfkwho.*` settings from its own
   verdicts: `create(Map)`, `record(...)`, `close()`. What is stable is in

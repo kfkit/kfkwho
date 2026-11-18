@@ -1,0 +1,86 @@
+# On a version tag vX.Y.Z: build and test the jar at that version, sign it
+# with cosign (keyless, GitHub OIDC) and publish a GitHub release with the
+# jar, its SHA-256 and the Sigstore bundle. How to cut one: docs/releasing.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the release
+      id-token: write   # cosign keyless signing
+    steps:
+      - id: version
+        name: version from the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $TAG is not vX.Y.Z; no release"
+            exit 1
+          fi
+          version="${TAG#v}"
+          {
+            echo "version=$version"
+            echo "jar=kfkwho-$version.jar"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      # No Gradle cache: a release is built from the tag alone.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-disabled: true
+      - name: build and test
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew build -Pversion="$VERSION" --no-daemon
+      - name: checksum
+        working-directory: build/libs
+        env:
+          JAR: ${{ steps.version.outputs.jar }}
+        run: sha256sum "$JAR" > "$JAR.sha256"
+      - uses: sigstore/cosign-installer@v3
+      - name: sign
+        working-directory: build/libs
+        env:
+          JAR: ${{ steps.version.outputs.jar }}
+        run: cosign sign-blob --yes --bundle "$JAR.sigstore.json" "$JAR"
+      # The command the release notes give users, run on what was just signed.
+      - name: verify the signature
+        working-directory: build/libs
+        env:
+          JAR: ${{ steps.version.outputs.jar }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          cosign verify-blob "$JAR" \
+            --bundle "$JAR.sigstore.json" \
+            --certificate-identity-regexp "^https://github.com/$REPOSITORY/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build/libs/${{ steps.version.outputs.jar }}
+            build/libs/${{ steps.version.outputs.jar }}.sha256
+            build/libs/${{ steps.version.outputs.jar }}.sigstore.json
+          body: |
+            `${{ steps.version.outputs.jar }}`, the authorizer for Apache Kafka® 4.1 and later; it has no dependencies of its own. What changed is in [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md), how to install it in [docs/install.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/install.md).
+
+            Signed with cosign (keyless, GitHub OIDC). Check the checksum and the signature:
+
+                sha256sum -c ${{ steps.version.outputs.jar }}.sha256
+                cosign verify-blob ${{ steps.version.outputs.jar }} \
+                  --bundle ${{ steps.version.outputs.jar }}.sigstore.json \
+                  --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com

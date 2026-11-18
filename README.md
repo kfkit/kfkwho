@@ -89,6 +89,9 @@ skipped; `./gradlew check -PintegrationTest` makes it part of `check`. CI runs
 it on every supported broker release. What the metrics cost per request is in
 [docs/performance.md](docs/performance.md).
 
+A tag `vX.Y.Z` releases the jar, signed with cosign, on the GitHub releases
+page; how to cut one and verify it is in [Releasing](docs/releasing.md).
+
 Rules for contributors, human or agent, are in [AGENTS.md](AGENTS.md).
 
 ## License
