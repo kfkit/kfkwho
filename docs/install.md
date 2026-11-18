@@ -19,7 +19,19 @@ been run by CI.
 - **Kafka 4.1 or later, KRaft.** See [Compatibility](../README.md#compatibility).
 - **The jar.** There is no release yet; build it with `./gradlew jar`, which
   writes `build/libs/kfkwho-<version>.jar`. It has no dependencies of its
-  own.
+  own. Releases will publish `kfkwho-X.Y.Z.jar` on the
+  [GitHub releases](https://github.com/kfkit/kfkwho/releases) page with its
+  SHA-256 and a cosign signature; check both before the jar goes on a
+  broker:
+
+  ```bash
+  sha256sum -c kfkwho-X.Y.Z.jar.sha256
+  cosign verify-blob kfkwho-X.Y.Z.jar \
+    --bundle kfkwho-X.Y.Z.jar.sigstore.json \
+    --certificate-identity-regexp '^https://github.com/kfkit/kfkwho/' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  ```
+
 - **The JMX Exporter agent.** `jmx_prometheus_javaagent-1.0.1.jar`, the
   version the integration test runs, from
   `https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/`.

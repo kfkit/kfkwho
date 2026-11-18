@@ -5,7 +5,16 @@ plugins {
 }
 
 group = "dev.kfkit"
-version = "0.1.0-SNAPSHOT"
+// A release passes its version, the tag without the v: -Pversion=0.1.0. It
+// must be X.Y.Z, so no SNAPSHOT reaches a release jar; without it the build
+// is the development version.
+val developmentVersion = "0.1.0-SNAPSHOT"
+version = providers.gradleProperty("version").orNull?.let { requested ->
+    require(Regex("""\d+\.\d+\.\d+""").matches(requested)) {
+        "-Pversion=$requested: a release version is X.Y.Z, without a v or a suffix"
+    }
+    requested
+} ?: developmentVersion
 
 // The broker provides the Kafka classes at runtime; the jar ships without
 // dependencies. Compile against the newest supported release; the test matrix

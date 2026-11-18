@@ -39,7 +39,7 @@ class InstallDocTest {
     @Test
     void theDocsNameTheAuthorizerThatShips() throws Exception {
         Set<String> named = new TreeSet<>();
-        try (Stream<Path> docs = Files.list(Path.of("docs"))) {
+        try (Stream<Path> docs = Files.walk(Path.of("docs")).filter(Files::isRegularFile)) {
             for (Path doc : Stream.concat(Stream.of(Path.of("README.md")), docs).toList()) {
                 named.addAll(classNames(doc));
             }
