@@ -2,12 +2,13 @@
 
 Who talks to what on your Apache Kafka® cluster: a drop-in replacement for the
 broker's `StandardAuthorizer` that publishes JMX metrics per principal, client
-id, topic, operation and request type, with Prometheus JMX Exporter rules and a
-Grafana dashboard to read them.
+id, topic, operation and request type, with Prometheus JMX Exporter rules to
+read them.
 
-> Status: pre-alpha, not released. CI runs the jar as the authorizer of real
-> brokers; nothing has run on a production cluster yet, and the names of
-> settings and metrics may still change before the first release.
+> Status: 0.1.0, the first release. CI runs the jar as the authorizer of real
+> brokers on every supported release; nothing has run on a production cluster
+> yet. Until 1.0 a setting or a metric may still be renamed, and every such
+> change is listed in the [changelog](CHANGELOG.md).
 
 ## Why
 
@@ -43,7 +44,8 @@ the verdict stays the broker's, the observation becomes a metric.
 - Cardinality under control: idle series expire, a hard cap folds the rest into
   `__other__`, client ids are normalised by rules you configure, internal
   topics are excluded.
-- `jmx-exporter/kfkwho.yml` and `grafana/kfkwho.json`.
+- `jmx-exporter/kfkwho.yml`, the rules for the Prometheus JMX Exporter. A
+  Grafana dashboard is not in this release.
 - `AccessRecorder`, for another authorizer that decides for itself and
   publishes the same metrics: see [Embedding](docs/embedding.md).
 

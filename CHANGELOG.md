@@ -5,6 +5,8 @@ is 0 and breaking changes are listed here instead of bumping it.
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-18
+
 ### Breaking
 
 Nothing was released before these; they are listed so that anyone who built

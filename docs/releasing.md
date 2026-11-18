@@ -19,7 +19,7 @@ key is kept anywhere.
 The build takes the version from `-Pversion`, which the workflow sets to the
 tag without its `v`. It accepts only `X.Y.Z`: a `SNAPSHOT`, a suffix or a
 leading `v` fails the build, and so does a tag that is not `vX.Y.Z`. Without
-`-Pversion` the build is the development version, `0.1.0-SNAPSHOT` in
+`-Pversion` the build is the development version, `0.2.0-SNAPSHOT` in
 `build.gradle.kts`.
 
 ## Cutting a release
