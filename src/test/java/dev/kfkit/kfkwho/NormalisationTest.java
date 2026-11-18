@@ -83,7 +83,7 @@ class NormalisationTest {
 
     @Test
     void aStreamsRuleMapsTheThreadClientsToTheApplicationId() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, STREAMS_RULE);
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, STREAMS_RULE);
 
         read("app-1-StreamThread-2-consumer", "orders");
         read("app-1-StreamThread-3-producer", "orders");
@@ -94,7 +94,7 @@ class NormalisationTest {
 
     @Test
     void configuredRulesReplaceTheDefaults() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, STREAMS_RULE);
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, STREAMS_RULE);
 
         read("consumer-orders-app-3", "orders");
 
@@ -103,7 +103,7 @@ class NormalisationTest {
 
     @Test
     void anEmptyRuleListKeepsClientIdsAsSent() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "");
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, "");
 
         read("consumer-orders-app-3-6f1c2a4e-1b2c-4d5e-8f90-abcdef123456", "orders");
 
@@ -112,7 +112,7 @@ class NormalisationTest {
 
     @Test
     void theFirstRuleThatMatchesTheWholeIdWins() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "billing=>partial,^billing-(\\d)$=>first-$1,^billing-.*=>second");
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, "billing=>partial,^billing-(\\d)$=>first-$1,^billing-.*=>second");
 
         read("billing-1", "orders");
         read("billing-x", "orders");
@@ -122,7 +122,7 @@ class NormalisationTest {
 
     @Test
     void aRuleThatRewritesToNothingGivesUnknown() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^tmp-.*=>");
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, "^tmp-.*=>");
 
         read("tmp-42", "orders");
 
@@ -146,14 +146,14 @@ class NormalisationTest {
         for (String rule : List.of("^(consumer-.*=>$1", "^(consumer)-.*=>$2", "^consumer-.*=>${app}", "^c=>$",
                 "^c=>\\")) {
             ConfigException e = assertThrows(ConfigException.class,
-                    () -> authorizer.configure(broker(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, rule)), rule);
+                    () -> authorizer.configure(broker(RecorderConfig.CLIENT_ID_RULES_CONFIG, rule)), rule);
             assertTrue(e.getMessage().contains(rule), e.getMessage());
         }
     }
 
     @Test
     void aNamedGroupMayBeReplaced() throws Exception {
-        start(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^(?<app>.+)-worker-\\d+$=>${app}");
+        start(RecorderConfig.CLIENT_ID_RULES_CONFIG, "^(?<app>.+)-worker-\\d+$=>${app}");
 
         read("billing-worker-3", "orders");
 
@@ -175,7 +175,7 @@ class NormalisationTest {
 
     @Test
     void anExcludedResourceTakesNoPlaceUnderTheCap() throws Exception {
-        start(AuthorizerConfig.MAX_SERIES_CONFIG, "1");
+        start(RecorderConfig.MAX_SERIES_CONFIG, "1");
 
         for (int i = 0; i < 3; i++) {
             read("billing", "__consumer_offsets");
@@ -188,7 +188,7 @@ class NormalisationTest {
 
     @Test
     void theExcludeRegexIsConfigurable() throws Exception {
-        start(AuthorizerConfig.RESOURCE_EXCLUDE_CONFIG, "orders|payments");
+        start(RecorderConfig.RESOURCE_EXCLUDE_CONFIG, "orders|payments");
 
         read("billing", "orders");
         read("billing", "payments");

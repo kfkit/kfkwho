@@ -65,7 +65,7 @@ class ClientSeriesTest {
     @Test
     void oneRequestCreatesAClientSeriesWithListenerAndProtocol() throws Exception {
         // AC1, with the client id kept as sent: by default the rules make billing-1 billing.
-        start(Map.of(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, ""));
+        start(Map.of(RecorderConfig.CLIENT_ID_RULES_CONFIG, ""));
         authorizer.authorize(FETCH.over("INTERNAL", SecurityProtocol.PLAINTEXT), READ_ORDERS_AND_BILLING);
 
         String name = "kfkwho:type=client,principal=\"User:alice\",client-id=billing-1,listener=INTERNAL,"
@@ -91,7 +91,7 @@ class ClientSeriesTest {
     @Test
     void aControllerRegistersNothing() throws Exception {
         // AC2
-        start(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "controller"));
+        start(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "controller"));
 
         assertEquals(List.of(AuthorizationResult.ALLOWED, AuthorizationResult.ALLOWED),
                 authorizer.authorize(FETCH, READ_ORDERS_AND_BILLING));
@@ -105,7 +105,7 @@ class ClientSeriesTest {
     @Test
     void aCombinedNodeRecords() throws Exception {
         // AC3
-        start(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "broker,controller"));
+        start(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "broker,controller"));
         authorizer.authorize(FETCH, READ_ORDERS_AND_BILLING);
 
         assertEquals(Set.of(ALICE + ",listener=PLAINTEXT,security-protocol=PLAINTEXT"), clientBeans());
@@ -115,7 +115,7 @@ class ClientSeriesTest {
 
     @Test
     void aBrokerOnlyNodeRecords() throws Exception {
-        start(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "broker"));
+        start(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "broker"));
         authorizer.authorize(FETCH, READ_ORDERS_AND_BILLING);
 
         assertEquals(1, clientBeans().size());
@@ -124,7 +124,7 @@ class ClientSeriesTest {
     @Test
     void withoutListenerSelectedThereIsNoListenerTag() throws Exception {
         // AC4: and requests over two listeners are one series.
-        start(Map.of(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,security-protocol"));
+        start(Map.of(RecorderConfig.TAGS_CONFIG, "principal,client-id,security-protocol"));
         authorizer.authorize(FETCH.over("INTERNAL", SecurityProtocol.PLAINTEXT), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.over("REPLICATION", SecurityProtocol.PLAINTEXT), READ_ORDERS_AND_BILLING);
 
@@ -147,7 +147,7 @@ class ClientSeriesTest {
 
     @Test
     void theClientAddressIsATagOnlyWhenSelected() throws Exception {
-        start(Map.of(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,client-address"));
+        start(Map.of(RecorderConfig.TAGS_CONFIG, "principal,client-id,client-address"));
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.10")), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.11")), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.11")), READ_ORDERS_AND_BILLING);
@@ -171,7 +171,7 @@ class ClientSeriesTest {
 
     @Test
     void foldsClientsPastTheCapIntoOverflow() throws Exception {
-        start(Map.of(AuthorizerConfig.MAX_SERIES_CONFIG, "2"));
+        start(Map.of(RecorderConfig.MAX_SERIES_CONFIG, "2"));
         for (String user : List.of("alice", "bob", "carol")) {
             authorizer.authorize(RequestContext.of(user, "billing-1", ApiKeys.FETCH), List.of(read("orders")));
         }
@@ -189,7 +189,7 @@ class ClientSeriesTest {
 
     @Test
     void expiresAnIdleClientSeries() throws Exception {
-        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(RecorderConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         authorizer.authorize(FETCH, READ_ORDERS_AND_BILLING);
         assertEquals(1.0, self("client-series-count"));
 

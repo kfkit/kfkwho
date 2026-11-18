@@ -100,7 +100,7 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
-    // AuthorizerConfigTest and MetricsDocTest read these; a change to them reruns the tests.
+    // RecorderConfigTest and MetricsDocTest read these; a change to them reruns the tests.
     inputs.dir("docs")
     inputs.file("jmx-exporter/kfkwho.yml")
     testLogging {

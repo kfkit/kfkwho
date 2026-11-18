@@ -37,7 +37,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** The {@code kfkwho.*} settings: validation through {@code configure}, defaults, and the docs that list them. */
-class AuthorizerConfigTest {
+class RecorderConfigTest {
 
     /** A key row of the table in {@code docs/config.md}: key, type, default. */
     private static final Pattern ROW = Pattern.compile("^\\| `(kfkwho\\.[^`]+)` \\| (\\w+) \\| ([^|]+) \\|");
@@ -53,21 +53,21 @@ class AuthorizerConfigTest {
     @Test
     void aZeroTtlFailsConfigureNamingTheKey() {
         ConfigException e = assertThrows(ConfigException.class,
-                () -> authorizer.configure(broker(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, "0")));
+                () -> authorizer.configure(broker(RecorderConfig.SERIES_TTL_SECONDS_CONFIG, "0")));
         assertTrue(e.getMessage().contains("kfkwho.series.ttl.seconds"), e.getMessage());
     }
 
     @Test
     void aValueOfTheWrongTypeFailsConfigureNamingTheKey() {
         ConfigException e = assertThrows(ConfigException.class,
-                () -> authorizer.configure(broker(AuthorizerConfig.MAX_SERIES_CONFIG, "many")));
+                () -> authorizer.configure(broker(RecorderConfig.MAX_SERIES_CONFIG, "many")));
         assertTrue(e.getMessage().contains("kfkwho.max.series"), e.getMessage());
     }
 
     @Test
     void anUnknownTagFailsConfigureWithTheTag() {
         ConfigException e = assertThrows(ConfigException.class, () -> authorizer.configure(
-                broker(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,topic-owner")));
+                broker(RecorderConfig.TAGS_CONFIG, "principal,client-id,topic-owner")));
         assertTrue(e.getMessage().contains("topic-owner"), e.getMessage());
         assertTrue(e.getMessage().contains("kfkwho.tags"), e.getMessage());
     }
@@ -75,30 +75,30 @@ class AuthorizerConfigTest {
     @Test
     void anInvalidClientIdRuleFailsConfigureWithTheRule() {
         ConfigException bad = assertThrows(ConfigException.class, () -> authorizer.configure(
-                broker(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^(consumer-.*=>$1")));
+                broker(RecorderConfig.CLIENT_ID_RULES_CONFIG, "^(consumer-.*=>$1")));
         assertTrue(bad.getMessage().contains("^(consumer-.*=>$1"), bad.getMessage());
         ConfigException noReplacement = assertThrows(ConfigException.class,
-                () -> AuthorizerConfig.parse(Map.of(AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^consumer-.*")));
+                () -> RecorderConfig.parse(Map.of(RecorderConfig.CLIENT_ID_RULES_CONFIG, "^consumer-.*")));
         assertTrue(noReplacement.getMessage().contains("^consumer-.*"), noReplacement.getMessage());
     }
 
     @Test
     void anInvalidExcludeRegexFailsConfigureNamingTheKey() {
         ConfigException e = assertThrows(ConfigException.class,
-                () -> authorizer.configure(broker(AuthorizerConfig.RESOURCE_EXCLUDE_CONFIG, "__[")));
+                () -> authorizer.configure(broker(RecorderConfig.RESOURCE_EXCLUDE_CONFIG, "__[")));
         assertTrue(e.getMessage().contains("kfkwho.resource.exclude"), e.getMessage());
     }
 
     @Test
     void appliesEachDefaultWhenKeysAreAbsent() {
-        AuthorizerConfig config = AuthorizerConfig.parse(broker());
+        RecorderConfig config = RecorderConfig.parse(broker());
 
         assertEquals(600, config.ttlSeconds());
         assertEquals(10_000, config.maxSeries());
         assertEquals(List.of("principal", "client-id", "resource-type", "resource", "operation", "api", "result",
                 "listener", "security-protocol"), config.tags());
-        assertEquals(AuthorizerConfig.DEFAULT_CLIENT_ID_RULES, config.clientIdRules().stream()
-                .map(rule -> rule.pattern().pattern() + AuthorizerConfig.RULE_SEPARATOR + rule.replacement()).toList());
+        assertEquals(RecorderConfig.DEFAULT_CLIENT_ID_RULES, config.clientIdRules().stream()
+                .map(rule -> rule.pattern().pattern() + RecorderConfig.RULE_SEPARATOR + rule.replacement()).toList());
         assertEquals("__.*", config.resourceExclude().pattern());
         assertTrue(config.resourceExclude().matcher("__consumer_offsets").matches());
         assertFalse(config.resourceExclude().matcher("orders").matches());
@@ -107,19 +107,19 @@ class AuthorizerConfigTest {
 
     @Test
     void readsEveryKey() {
-        AuthorizerConfig config = AuthorizerConfig.parse(Map.of(
-                AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, "30",
-                AuthorizerConfig.MAX_SERIES_CONFIG, "5",
-                AuthorizerConfig.TAGS_CONFIG, "principal, resource ,client-address",
-                AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^(.*)-StreamThread-\\d+-(consumer|producer)$=>$1,^x=>y",
-                AuthorizerConfig.RESOURCE_EXCLUDE_CONFIG, "_.*",
-                AuthorizerConfig.COUNT_DENIED_CONFIG, "false"));
+        RecorderConfig config = RecorderConfig.parse(Map.of(
+                RecorderConfig.SERIES_TTL_SECONDS_CONFIG, "30",
+                RecorderConfig.MAX_SERIES_CONFIG, "5",
+                RecorderConfig.TAGS_CONFIG, "principal, resource ,client-address",
+                RecorderConfig.CLIENT_ID_RULES_CONFIG, "^(.*)-StreamThread-\\d+-(consumer|producer)$=>$1,^x=>y",
+                RecorderConfig.RESOURCE_EXCLUDE_CONFIG, "_.*",
+                RecorderConfig.COUNT_DENIED_CONFIG, "false"));
 
         assertEquals(30, config.ttlSeconds());
         assertEquals(5, config.maxSeries());
         assertEquals(List.of("principal", "resource", "client-address"), config.tags());
         assertEquals(2, config.clientIdRules().size());
-        AuthorizerConfig.ClientIdRule streams = config.clientIdRules().get(0);
+        RecorderConfig.ClientIdRule streams = config.clientIdRules().get(0);
         assertEquals("orders-app", streams.pattern().matcher("orders-app-StreamThread-2-consumer")
                 .replaceFirst(streams.replacement()));
         assertEquals("_.*", config.resourceExclude().pattern());
@@ -128,12 +128,12 @@ class AuthorizerConfigTest {
 
     @Test
     void recordsOnlyWhereTheRolesIncludeBroker() {
-        assertTrue(AuthorizerConfig.parse(Map.of()).broker());
-        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "broker")).broker());
-        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "controller, broker")).broker());
-        assertTrue(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, List.of("broker"))).broker());
-        assertFalse(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, "controller")).broker());
-        assertFalse(AuthorizerConfig.parse(Map.of(AuthorizerConfig.PROCESS_ROLES_CONFIG, List.of("controller")))
+        assertTrue(RecorderConfig.parse(Map.of()).broker());
+        assertTrue(RecorderConfig.parse(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "broker")).broker());
+        assertTrue(RecorderConfig.parse(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "controller, broker")).broker());
+        assertTrue(RecorderConfig.parse(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, List.of("broker"))).broker());
+        assertFalse(RecorderConfig.parse(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, "controller")).broker());
+        assertFalse(RecorderConfig.parse(Map.of(RecorderConfig.PROCESS_ROLES_CONFIG, List.of("controller")))
                 .broker());
     }
 
@@ -147,7 +147,7 @@ class AuthorizerConfigTest {
             }
         }
         Map<String, String> declared = new TreeMap<>();
-        for (ConfigDef.ConfigKey key : AuthorizerConfig.CONFIG_DEF.configKeys().values()) {
+        for (ConfigDef.ConfigKey key : RecorderConfig.CONFIG_DEF.configKeys().values()) {
             declared.put(key.name, key.type.name().toLowerCase(Locale.ROOT) + " " + rendered(key.defaultValue));
         }
         assertEquals(declared, documented);
