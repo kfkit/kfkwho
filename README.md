@@ -44,6 +44,8 @@ the verdict stays the broker's, the observation becomes a metric.
   `__other__`, client ids are normalised by rules you configure, internal
   topics are excluded.
 - `jmx-exporter/kfkwho.yml` and `grafana/kfkwho.json`.
+- `AccessRecorder`, for another authorizer that decides for itself and
+  publishes the same metrics: see [Embedding](docs/embedding.md).
 
 ## Reading the series
 
@@ -64,7 +66,8 @@ curl -s localhost:9404/metrics | grep kfkwho_access_requests_total
 A cluster that ran without an authorizer starts enforcing ACLs: read
 [Installation](docs/install.md) first, which also covers the `apache/kafka`
 image and Strimzi. Settings are in [Configuration](docs/config.md), the
-MBeans and Prometheus series in [Metrics](docs/metrics.md).
+MBeans and Prometheus series in [Metrics](docs/metrics.md). Publishing the
+same metrics from another authorizer is in [Embedding](docs/embedding.md).
 
 ## Compatibility
 
