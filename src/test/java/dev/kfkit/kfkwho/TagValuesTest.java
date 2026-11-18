@@ -86,10 +86,10 @@ class TagValuesTest {
         authorizer.authorize(RequestContext.of("alice", AccessMetrics.UNKNOWN, ApiKeys.FETCH), READ_ORDERS);
 
         String unknown = "kfkwho:type=access,principal=\"User:alice\",client-id=unknown,"
-                + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
+                + "resource-type=TOPIC,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
         assertEquals(Set.of(unknown), accessBeans());
         assertEquals(3.0, SERVER.getAttribute(new ObjectName(unknown), "request-total"));
-        assertEquals(1.0, self("series-count"));
+        assertEquals(1.0, self("access-series-count"));
     }
 
     @Test
@@ -205,7 +205,7 @@ class TagValuesTest {
             series.add(objectName.getKeyProperty("resource-type") + " " + unquote(objectName.getKeyProperty("resource")));
             assertEquals(1.0, SERVER.getAttribute(objectName, "request-total"), name);
         }
-        assertEquals(Set.of("topic *", "cluster kafka-cluster", "transactional-id billing-tx.1", "topic orders.v1-eu"),
+        assertEquals(Set.of("TOPIC *", "CLUSTER kafka-cluster", "TRANSACTIONAL_ID billing-tx.1", "TOPIC orders.v1-eu"),
                 series);
     }
 
@@ -268,7 +268,7 @@ class TagValuesTest {
             total += perKey;
         }
         assertEquals(160_000.0, total);
-        assertEquals(0.0, self("series-overflow-total"));
+        assertEquals(0.0, self("access-series-overflow-total"));
     }
 
     /** A principal type of its own, as a custom {@code KafkaPrincipalBuilder} would return. */
@@ -300,7 +300,7 @@ class TagValuesTest {
     }
 
     private static Object self(String attribute) throws Exception {
-        return SERVER.getAttribute(new ObjectName("kfkwho:type=authorizer"), attribute);
+        return SERVER.getAttribute(new ObjectName("kfkwho:type=series"), attribute);
     }
 
     /** One tag, unquoted, across every access series. */

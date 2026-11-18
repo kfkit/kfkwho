@@ -169,8 +169,8 @@ class NormalisationTest {
         read("billing", "orders");
 
         assertEquals(Set.of("orders"), tags("resource"));
-        assertEquals(1.0, self("series-count"));
-        assertEquals(0.0, self("series-overflow-total"));
+        assertEquals(1.0, self("access-series-count"));
+        assertEquals(0.0, self("access-series-overflow-total"));
     }
 
     @Test
@@ -183,7 +183,7 @@ class NormalisationTest {
         read("billing", "orders");
 
         assertEquals(Set.of("orders"), tags("resource"));
-        assertEquals(0.0, self("series-overflow-total"));
+        assertEquals(0.0, self("access-series-overflow-total"));
     }
 
     @Test
@@ -205,7 +205,7 @@ class NormalisationTest {
                 AclOperation.IDEMPOTENT_WRITE, new ResourcePattern(ResourceType.CLUSTER, "kafka-cluster",
                         PatternType.LITERAL), 1, true, true)));
 
-        assertEquals(Set.of("cluster"), tags("resource-type"));
+        assertEquals(Set.of("CLUSTER"), tags("resource-type"));
         assertEquals(Set.of("kafka-cluster"), tags("resource"));
     }
 
@@ -238,7 +238,7 @@ class NormalisationTest {
     }
 
     private static Object self(String attribute) throws Exception {
-        return SERVER.getAttribute(new ObjectName("kfkwho:type=authorizer"), attribute);
+        return SERVER.getAttribute(new ObjectName("kfkwho:type=series"), attribute);
     }
 
     /** One tag, unquoted, across every access series. */

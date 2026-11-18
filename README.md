@@ -5,8 +5,9 @@ broker's `StandardAuthorizer` that publishes JMX metrics per principal, client
 id, topic, operation and request type, with Prometheus JMX Exporter rules and a
 Grafana dashboard to read them.
 
-> Status: pre-alpha. The skeleton compiles and the plan is in the issues;
-> nothing has run on a real cluster yet.
+> Status: pre-alpha, not released. CI runs the jar as the authorizer of real
+> brokers; nothing has run on a production cluster yet, and the names of
+> settings and metrics may still change before the first release.
 
 ## Why
 
@@ -36,7 +37,7 @@ the verdict stays the broker's, the observation becomes a metric.
   series, see [Reading the series](#reading-the-series).
 - MBeans with a fixed tag order, so exporter rules are one line:
 
-      kfkwho:type=access,principal=…,client-id=…,resource-type=topic,resource=…,operation=…,api=…,result=ALLOWED
+      kfkwho:type=access,principal=…,client-id=…,resource-type=TOPIC,resource=…,operation=…,api=…,result=ALLOWED
       kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=…
 
 - Cardinality under control: idle series expire, a hard cap folds the rest into
@@ -67,7 +68,7 @@ MBeans and Prometheus series in [Metrics](docs/metrics.md).
 
 ## Compatibility
 
-Compiled against Kafka 4.3, Java 17. Kafka 4.1 and later is the target
+Compiled against Kafka 4.4, Java 17. Kafka 4.1 and later is the target
 (KRaft, `StandardAuthorizer`); earlier releases are not tested.
 
 ## Development

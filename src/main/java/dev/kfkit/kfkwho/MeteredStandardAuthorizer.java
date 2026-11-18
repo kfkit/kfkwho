@@ -47,7 +47,7 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
  * wrapper would silently never receive them.
  *
  * <p>Configure with {@code authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer}.
- * A series that saw no request for {@code kfkwho.ttl.seconds} (default
+ * A series that saw no request for {@code kfkwho.series.ttl.seconds} (default
  * 600) disappears; past {@code kfkwho.max.series} series (default 10000),
  * new ones are folded into an overflow series. Every setting is declared in
  * {@link AuthorizerConfig} and listed in {@code docs/config.md}; a wrong value
@@ -104,7 +104,7 @@ public class MeteredStandardAuthorizer extends StandardAuthorizer {
             thread.setDaemon(true);
             return thread;
         });
-        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.labels(), config.clientIdRules(),
+        access = new AccessMetrics(metrics, ttlSeconds, config.maxSeries(), config.tags(), config.clientIdRules(),
                 config.resourceExclude(), creator != null ? creator : background);
         long period = Math.max(1, Math.min(ttlSeconds, MAX_EXPIRY_PERIOD_SECONDS));
         background.scheduleAtFixedRate(() -> {

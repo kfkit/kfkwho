@@ -60,8 +60,9 @@ KAFKA_OPTS=-javaagent:/opt/kfkwho/jmx_prometheus_javaagent.jar=9404:/opt/kfkwho/
 ```
 
 The image's start script adds `CLASSPATH` to the broker's classpath and
-turns every `KAFKA_*` variable into a broker setting: `kfkwho.ttl.seconds`
-is `KAFKA_KFKWHO_TTL_SECONDS`. Remember that the image applies its built-in
+turns every `KAFKA_*` variable into a broker setting:
+`kfkwho.series.ttl.seconds` is `KAFKA_KFKWHO_SERIES_TTL_SECONDS`. Remember that
+the image applies its built-in
 single-node defaults only when no `KAFKA_*` variable is set: the variables
 above go next to a full configuration (`KAFKA_NODE_ID`,
 `KAFKA_PROCESS_ROLES`, `KAFKA_LISTENERS`, ...), not instead of one. Publish
@@ -115,7 +116,7 @@ spec:
       superUsers:
         - User:admin
     config:
-      kfkwho.ttl.seconds: 900
+      kfkwho.series.ttl.seconds: 900
     metricsConfig:
       type: jmxPrometheusExporter
       valueFrom:

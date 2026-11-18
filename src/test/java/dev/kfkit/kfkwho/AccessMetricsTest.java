@@ -51,7 +51,7 @@ class AccessMetricsTest {
     private static final ResourcePattern ORDERS = new ResourcePattern(ResourceType.TOPIC, "orders", PatternType.LITERAL);
     private static final List<Action> READ_ORDERS = List.of(new Action(AclOperation.READ, ORDERS, 1, true, true));
     private static final String ALICE_READS_ORDERS = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
-            + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
+            + "resource-type=TOPIC,resource=orders,operation=READ,api=FETCH,result=ALLOWED";
 
     private final Metrics pluginMetrics = new Metrics();
     // Series are created on the request thread here; SeriesCreationTest covers the background thread.
@@ -96,7 +96,7 @@ class AccessMetricsTest {
                 authorizer.authorize(RequestContext.of("bob", "billing-2", ApiKeys.FETCH), READ_ORDERS));
 
         String bobDenied = "kfkwho:type=access,principal=\"User:bob\",client-id=billing,"
-                + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=DENIED";
+                + "resource-type=TOPIC,resource=orders,operation=READ,api=FETCH,result=DENIED";
         assertEquals(Set.of(ALICE_READS_ORDERS, bobDenied), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(bobDenied), "request-total"));
     }
@@ -126,9 +126,9 @@ class AccessMetricsTest {
         authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.PRODUCE), writeOrders);
 
         String produced = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
-                + "resource-type=topic,resource=orders,operation=WRITE,api=PRODUCE,result=ALLOWED";
+                + "resource-type=TOPIC,resource=orders,operation=WRITE,api=PRODUCE,result=ALLOWED";
         String described = "kfkwho:type=access,principal=\"User:alice\",client-id=billing,"
-                + "resource-type=topic,resource=orders,operation=DESCRIBE,api=METADATA,result=ALLOWED";
+                + "resource-type=TOPIC,resource=orders,operation=DESCRIBE,api=METADATA,result=ALLOWED";
         assertEquals(Set.of(produced, described), accessBeans());
         assertEquals(2.0, SERVER.getAttribute(new ObjectName(produced), "request-total"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(described), "request-total"));
@@ -169,7 +169,7 @@ class AccessMetricsTest {
         authorizer.authorize(RequestContext.of("alice", clientId, ApiKeys.FETCH), READ_ORDERS);
 
         ObjectName name = new ObjectName("kfkwho:type=access,principal=\"User:alice\",client-id="
-                + ObjectName.quote(clientId) + ",resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED");
+                + ObjectName.quote(clientId) + ",resource-type=TOPIC,resource=orders,operation=READ,api=FETCH,result=ALLOWED");
         assertEquals(1.0, SERVER.getAttribute(name, "request-total"));
         assertEquals(clientId, ObjectName.unquote(name.getKeyProperty("client-id")));
     }
@@ -179,7 +179,7 @@ class AccessMetricsTest {
         authorizer.authorize(RequestContext.of("alice", "", ApiKeys.FETCH), READ_ORDERS);
 
         assertEquals(Set.of("kfkwho:type=access,principal=\"User:alice\",client-id=unknown,"
-                + "resource-type=topic,resource=orders,operation=READ,api=FETCH,result=ALLOWED"), accessBeans());
+                + "resource-type=TOPIC,resource=orders,operation=READ,api=FETCH,result=ALLOWED"), accessBeans());
     }
 
     @Test
@@ -195,7 +195,7 @@ class AccessMetricsTest {
         for (String name : accessBeans()) {
             types.add(new ObjectName(name).getKeyProperty("resource-type"));
         }
-        assertEquals(Set.of("group", "transactional-id", "cluster"), types);
+        assertEquals(Set.of("GROUP", "TRANSACTIONAL_ID", "CLUSTER"), types);
     }
 
     @Test
@@ -220,7 +220,7 @@ class AccessMetricsTest {
     @Test
     void closeUnregistersEverything() throws Exception {
         authorizer.authorize(RequestContext.of("alice", "billing-1", ApiKeys.FETCH), READ_ORDERS);
-        assertEquals(Set.of(ALICE_READS_ORDERS, "kfkwho:type=authorizer", "kfkwho:type=client,principal=\"User:alice\","
+        assertEquals(Set.of(ALICE_READS_ORDERS, "kfkwho:type=series", "kfkwho:type=client,principal=\"User:alice\","
                 + "client-id=billing,listener=PLAINTEXT,security-protocol=PLAINTEXT"), beans("kfkwho:*"));
 
         authorizer.close();

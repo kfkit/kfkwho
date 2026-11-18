@@ -43,9 +43,9 @@ import org.apache.kafka.common.config.ConfigException;
  */
 final class AuthorizerConfig {
 
-    static final String TTL_SECONDS_CONFIG = "kfkwho.ttl.seconds";
+    static final String SERIES_TTL_SECONDS_CONFIG = "kfkwho.series.ttl.seconds";
     static final String MAX_SERIES_CONFIG = "kfkwho.max.series";
-    static final String LABELS_CONFIG = "kfkwho.labels";
+    static final String TAGS_CONFIG = "kfkwho.tags";
     static final String CLIENT_ID_RULES_CONFIG = "kfkwho.client.id.rules";
     static final String RESOURCE_EXCLUDE_CONFIG = "kfkwho.resource.exclude";
     static final String COUNT_DENIED_CONFIG = "kfkwho.count.denied";
@@ -56,13 +56,13 @@ final class AuthorizerConfig {
     static final int DEFAULT_TTL_SECONDS = 600;
     static final int DEFAULT_MAX_SERIES = 10_000;
 
-    /** Every label a series may carry, in the order the MBean names use. */
-    static final List<String> KNOWN_LABELS = List.of("principal", "client-id", "resource-type", "resource",
+    /** Every tag a series may carry, in the order the MBean names use. */
+    static final List<String> KNOWN_TAGS = List.of("principal", "client-id", "resource-type", "resource",
             "operation", "api", "result", "listener", "security-protocol", "client-address");
 
-    /** All known labels but {@code client-address}: its cardinality is that of the clients' addresses. */
-    static final List<String> DEFAULT_LABELS = KNOWN_LABELS.stream()
-            .filter(label -> !label.equals("client-address")).toList();
+    /** All known tags but {@code client-address}: its cardinality is that of the clients' addresses. */
+    static final List<String> DEFAULT_TAGS = KNOWN_TAGS.stream()
+            .filter(tag -> !tag.equals("client-address")).toList();
 
     /** Between the pattern and the replacement of a client id rule. */
     static final String RULE_SEPARATOR = "=>";
@@ -81,14 +81,14 @@ final class AuthorizerConfig {
             "^(.+)-\\d+$" + RULE_SEPARATOR + "$1");
 
     static final ConfigDef CONFIG_DEF = new ConfigDef()
-            .define(TTL_SECONDS_CONFIG, Type.INT, DEFAULT_TTL_SECONDS, Range.atLeast(1), Importance.MEDIUM,
+            .define(SERIES_TTL_SECONDS_CONFIG, Type.INT, DEFAULT_TTL_SECONDS, Range.atLeast(1), Importance.MEDIUM,
                     "Seconds without a request after which a series is removed; seen again, it starts from zero.")
             .define(MAX_SERIES_CONFIG, Type.INT, DEFAULT_MAX_SERIES, Range.atLeast(1), Importance.MEDIUM,
                     "Series of each type, access and client, that may exist at once; past it, new ones are recorded into __other__.")
-            .define(LABELS_CONFIG, Type.LIST, DEFAULT_LABELS, AuthorizerConfig::validateLabels, Importance.LOW,
-                    "The labels series carry, a subset of " + String.join(", ", KNOWN_LABELS) + ".")
+            .define(TAGS_CONFIG, Type.LIST, DEFAULT_TAGS, AuthorizerConfig::validateTags, Importance.LOW,
+                    "The tags series carry, a subset of " + String.join(", ", KNOWN_TAGS) + ".")
             .define(CLIENT_ID_RULES_CONFIG, Type.LIST, DEFAULT_CLIENT_ID_RULES, AuthorizerConfig::validateRules, Importance.LOW,
-                    "Rules that rewrite a client id before it becomes a label, each pattern" + RULE_SEPARATOR
+                    "Rules that rewrite a client id before it becomes a tag value, each pattern" + RULE_SEPARATOR
                             + "replacement in Java regex syntax; the first whose pattern matches the whole id applies.")
             .define(RESOURCE_EXCLUDE_CONFIG, Type.STRING, "__.*", AuthorizerConfig::validateRegex, Importance.LOW,
                     "Resources whose whole name matches this Java regex are not recorded.")
@@ -97,16 +97,16 @@ final class AuthorizerConfig {
 
     private final int ttlSeconds;
     private final int maxSeries;
-    private final List<String> labels;
+    private final List<String> tags;
     private final List<ClientIdRule> clientIdRules;
     private final Pattern resourceExclude;
     private final boolean countDenied;
     private final boolean broker;
 
     private AuthorizerConfig(Map<String, Object> values, boolean broker) {
-        ttlSeconds = (Integer) values.get(TTL_SECONDS_CONFIG);
+        ttlSeconds = (Integer) values.get(SERIES_TTL_SECONDS_CONFIG);
         maxSeries = (Integer) values.get(MAX_SERIES_CONFIG);
-        labels = List.copyOf(strings(values.get(LABELS_CONFIG)));
+        tags = List.copyOf(strings(values.get(TAGS_CONFIG)));
         clientIdRules = strings(values.get(CLIENT_ID_RULES_CONFIG)).stream().map(ClientIdRule::parse).toList();
         resourceExclude = Pattern.compile((String) values.get(RESOURCE_EXCLUDE_CONFIG));
         countDenied = (Boolean) values.get(COUNT_DENIED_CONFIG);
@@ -144,8 +144,8 @@ final class AuthorizerConfig {
         return maxSeries;
     }
 
-    List<String> labels() {
-        return labels;
+    List<String> tags() {
+        return tags;
     }
 
     List<ClientIdRule> clientIdRules() {
@@ -190,10 +190,10 @@ final class AuthorizerConfig {
         }
     }
 
-    private static void validateLabels(String name, Object value) {
-        for (String label : strings(value)) {
-            if (!KNOWN_LABELS.contains(label)) {
-                throw new ConfigException(name, label, "Unknown label; known: " + String.join(", ", KNOWN_LABELS));
+    private static void validateTags(String name, Object value) {
+        for (String tag : strings(value)) {
+            if (!KNOWN_TAGS.contains(tag)) {
+                throw new ConfigException(name, tag, "Unknown tag; known: " + String.join(", ", KNOWN_TAGS));
             }
         }
     }

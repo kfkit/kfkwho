@@ -53,8 +53,8 @@ class AuthorizerConfigTest {
     @Test
     void aZeroTtlFailsConfigureNamingTheKey() {
         ConfigException e = assertThrows(ConfigException.class,
-                () -> authorizer.configure(broker(AuthorizerConfig.TTL_SECONDS_CONFIG, "0")));
-        assertTrue(e.getMessage().contains("kfkwho.ttl.seconds"), e.getMessage());
+                () -> authorizer.configure(broker(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, "0")));
+        assertTrue(e.getMessage().contains("kfkwho.series.ttl.seconds"), e.getMessage());
     }
 
     @Test
@@ -65,11 +65,11 @@ class AuthorizerConfigTest {
     }
 
     @Test
-    void anUnknownLabelFailsConfigureWithTheLabel() {
+    void anUnknownTagFailsConfigureWithTheTag() {
         ConfigException e = assertThrows(ConfigException.class, () -> authorizer.configure(
-                broker(AuthorizerConfig.LABELS_CONFIG, "principal,client-id,topic-owner")));
+                broker(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,topic-owner")));
         assertTrue(e.getMessage().contains("topic-owner"), e.getMessage());
-        assertTrue(e.getMessage().contains("kfkwho.labels"), e.getMessage());
+        assertTrue(e.getMessage().contains("kfkwho.tags"), e.getMessage());
     }
 
     @Test
@@ -96,7 +96,7 @@ class AuthorizerConfigTest {
         assertEquals(600, config.ttlSeconds());
         assertEquals(10_000, config.maxSeries());
         assertEquals(List.of("principal", "client-id", "resource-type", "resource", "operation", "api", "result",
-                "listener", "security-protocol"), config.labels());
+                "listener", "security-protocol"), config.tags());
         assertEquals(AuthorizerConfig.DEFAULT_CLIENT_ID_RULES, config.clientIdRules().stream()
                 .map(rule -> rule.pattern().pattern() + AuthorizerConfig.RULE_SEPARATOR + rule.replacement()).toList());
         assertEquals("__.*", config.resourceExclude().pattern());
@@ -108,16 +108,16 @@ class AuthorizerConfigTest {
     @Test
     void readsEveryKey() {
         AuthorizerConfig config = AuthorizerConfig.parse(Map.of(
-                AuthorizerConfig.TTL_SECONDS_CONFIG, "30",
+                AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, "30",
                 AuthorizerConfig.MAX_SERIES_CONFIG, "5",
-                AuthorizerConfig.LABELS_CONFIG, "principal, resource ,client-address",
+                AuthorizerConfig.TAGS_CONFIG, "principal, resource ,client-address",
                 AuthorizerConfig.CLIENT_ID_RULES_CONFIG, "^(.*)-StreamThread-\\d+-(consumer|producer)$=>$1,^x=>y",
                 AuthorizerConfig.RESOURCE_EXCLUDE_CONFIG, "_.*",
                 AuthorizerConfig.COUNT_DENIED_CONFIG, "false"));
 
         assertEquals(30, config.ttlSeconds());
         assertEquals(5, config.maxSeries());
-        assertEquals(List.of("principal", "resource", "client-address"), config.labels());
+        assertEquals(List.of("principal", "resource", "client-address"), config.tags());
         assertEquals(2, config.clientIdRules().size());
         AuthorizerConfig.ClientIdRule streams = config.clientIdRules().get(0);
         assertEquals("orders-app", streams.pattern().matcher("orders-app-StreamThread-2-consumer")

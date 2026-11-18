@@ -45,7 +45,7 @@ class SeriesBoundsTest {
 
     private static final MBeanServer SERVER = ManagementFactory.getPlatformMBeanServer();
     private static final long TTL_SECONDS = 60;
-    private static final String SELF = "kfkwho:type=authorizer";
+    private static final String SELF = "kfkwho:type=series";
     private static final String OTHER_ALLOWED = "kfkwho:type=access,principal=__other__,client-id=__other__,"
             + "resource-type=__other__,resource=__other__,operation=__other__,api=__other__,result=ALLOWED";
 
@@ -61,7 +61,7 @@ class SeriesBoundsTest {
 
     @Test
     void expiresAnIdleSeriesAndKeepsABusyOne() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
         readTopic("billing");
 
@@ -76,13 +76,13 @@ class SeriesBoundsTest {
         authorizer.expireIdleSeries();
 
         assertEquals(Set.of(topicSeries("billing")), accessBeans());
-        assertEquals(1.0, self("series-evicted-total"));
-        assertEquals(1.0, self("series-count"));
+        assertEquals(1.0, self("access-series-evicted-total"));
+        assertEquals(1.0, self("access-series-count"));
     }
 
     @Test
     void keepsASeriesUntilTheTtlHasPassed() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
 
         time.advanceSeconds(TTL_SECONDS);
@@ -100,13 +100,13 @@ class SeriesBoundsTest {
         for (String topic : List.of("orders", "billing", "payments")) {
             readTopic(topic);
         }
-        assertEquals(0.0, self("series-overflow-total"));
+        assertEquals(0.0, self("access-series-overflow-total"));
 
         // Past the cap the verdict is still the parent's.
         assertEquals(List.of(AuthorizationResult.ALLOWED), readTopic("refunds"));
 
-        assertEquals(1.0, self("series-overflow-total"));
-        assertEquals(3.0, self("series-count"));
+        assertEquals(1.0, self("access-series-overflow-total"));
+        assertEquals(3.0, self("access-series-count"));
         assertEquals(Set.of(topicSeries("orders"), topicSeries("billing"), topicSeries("payments"), OTHER_ALLOWED),
                 accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED), "request-total"));
@@ -117,19 +117,19 @@ class SeriesBoundsTest {
         assertEquals(2.0, SERVER.getAttribute(new ObjectName(topicSeries("orders")), "request-total"));
         assertEquals(List.of(AuthorizationResult.DENIED),
                 authorizer.authorize(RequestContext.of("bob", "billing-2", ApiKeys.FETCH), read("orders")));
-        assertEquals(2.0, self("series-overflow-total"));
+        assertEquals(2.0, self("access-series-overflow-total"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED.replace("ALLOWED", "DENIED")),
                 "request-total"));
     }
 
     @Test
     void anEvictedSeriesStartsFromZero() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         ObjectName orders = new ObjectName(topicSeries("orders"));
         readTopic("orders");
         readTopic("orders");
         assertEquals(2.0, SERVER.getAttribute(orders, "request-total"));
-        assertEquals(0.0, self("series-evicted-total"));
+        assertEquals(0.0, self("access-series-evicted-total"));
 
         time.advanceSeconds(TTL_SECONDS + 1);
         authorizer.expireIdleSeries();
@@ -137,12 +137,12 @@ class SeriesBoundsTest {
 
         readTopic("orders");
         assertEquals(1.0, SERVER.getAttribute(orders, "request-total"));
-        assertEquals(1.0, self("series-evicted-total"));
+        assertEquals(1.0, self("access-series-evicted-total"));
     }
 
     @Test
     void evictionMakesRoomUnderTheCap() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS),
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS),
                 AuthorizerConfig.MAX_SERIES_CONFIG, "1"));
         readTopic("orders");
         readTopic("billing");
@@ -188,7 +188,7 @@ class SeriesBoundsTest {
     }
 
     private static String topicSeries(String topic) {
-        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing,resource-type=topic,resource="
+        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing,resource-type=TOPIC,resource="
                 + topic + ",operation=READ,api=FETCH,result=ALLOWED";
     }
 

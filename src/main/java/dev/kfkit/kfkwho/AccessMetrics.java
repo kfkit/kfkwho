@@ -22,7 +22,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
@@ -56,12 +55,12 @@ import dev.kfkit.kfkwho.AuthorizerConfig.ClientIdRule;
  * with {@code request-total}, {@code request-rate} and {@code last-seen-ms},
  * counted once per action.
  *
- * <p>Client: one series per principal, client id and, as {@code kfkwho.labels}
+ * <p>Client: one series per principal, client id and, as {@code kfkwho.tags}
  * selects them, listener, security protocol and client address,
  * {@code kfkwho:type=client,principal=,client-id=,listener=,security-protocol=,client-address=}
  * with the same three metrics, counted once per {@code authorize} call. It
- * answers who is connected without the resource dimension. A label that is
- * not selected is not a tag and not part of the key: the series of its
+ * answers who is connected without the resource dimension. A tag that is
+ * not selected is left out and is not part of the key: the series of its
  * values are one.
  *
  * <p>The {@code api} tag is the name of the request's API key
@@ -95,7 +94,7 @@ final class AccessMetrics {
     static final String JMX_PREFIX = "kfkwho";
     static final String GROUP = "access";
     static final String CLIENT_GROUP = "client";
-    static final String SELF_GROUP = "authorizer";
+    static final String SELF_GROUP = "series";
 
     /**
      * A null or empty client id, resource name or listener. The
@@ -136,20 +135,20 @@ final class AccessMetrics {
      * Under concurrent first sightings {@code maxSeries} may be overshot by
      * the number of request handler threads.
      *
-     * @param labels the labels of {@code kfkwho.labels}; of them, this reads
+     * @param tags the tags of {@code kfkwho.tags}; of them, this reads
      *        {@code listener}, {@code security-protocol} and {@code client-address}
      */
-    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, List<String> labels,
+    AccessMetrics(Metrics metrics, long ttlSeconds, int maxSeries, List<String> tags,
             List<ClientIdRule> clientIdRules, Pattern resourceExclude, Executor creator) {
         this.metrics = metrics;
         this.ttlSeconds = ttlSeconds;
         this.clientIds = clientIdRules.isEmpty() ? null
                 : new Memo<>(raw -> orUnknown(rewrite(clientIdRules, raw)), MAX_MEMO);
         this.excluded = new Memo<>(resource -> resourceExclude.matcher(resource).matches(), MAX_MEMO);
-        this.listener = labels.contains("listener");
-        this.securityProtocol = labels.contains("security-protocol");
-        this.clientAddress = labels.contains("client-address");
-        this.access = new SeriesSet<Key>(metrics, "", "Access", maxSeries, AuthorizationResult.values().length,
+        this.listener = tags.contains("listener");
+        this.securityProtocol = tags.contains("security-protocol");
+        this.clientAddress = tags.contains("client-address");
+        this.access = new SeriesSet<Key>(metrics, "access-", "Access", maxSeries, AuthorizationResult.values().length,
                 creator, new SeriesSet.Sensors<Key>() {
                     @Override
                     public Sensor sensor(Key key) {
@@ -295,7 +294,7 @@ final class AccessMetrics {
         }
     }
 
-    /** The identity of a client series; a label that is not selected is null. */
+    /** The identity of a client series; a tag that is not selected is null. */
     private static final class ClientKey implements SeriesSet.Key<ClientKey> {
         private KafkaPrincipal principal;
         private String clientId;
@@ -340,7 +339,7 @@ final class AccessMetrics {
 
     private Sensor accessSensor(Key key) {
         return accessSensor(truncate(String.valueOf(key.principal)), truncate(key.clientId),
-                key.resourceType.name().toLowerCase(Locale.ROOT).replace('_', '-'), truncate(key.resource),
+                key.resourceType.name(), truncate(key.resource),
                 key.operation.name(), api(key.api), key.result);
     }
 
@@ -364,7 +363,7 @@ final class AccessMetrics {
                 key.clientAddress == null ? UNKNOWN : key.clientAddress.getHostAddress());
     }
 
-    /** Tags of labels that are not selected are left out, whatever is passed for them. */
+    /** Tags that are not selected are left out, whatever is passed for them. */
     private Sensor clientSensor(String principal, String clientId, String listener, String securityProtocol,
             String clientAddress) {
         Map<String, String> tags = new LinkedHashMap<>();
