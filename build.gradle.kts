@@ -8,7 +8,7 @@ group = "dev.kfkit"
 // A release passes its version, the tag without the v: -Pversion=0.1.0. It
 // must be X.Y.Z, so no SNAPSHOT reaches a release jar; without it the build
 // is the development version.
-val developmentVersion = "0.1.0-SNAPSHOT"
+val developmentVersion = "0.2.0-SNAPSHOT"
 version = providers.gradleProperty("version").orNull?.let { requested ->
     require(Regex("""\d+\.\d+\.\d+""").matches(requested)) {
         "-Pversion=$requested: a release version is X.Y.Z, without a v or a suffix"
