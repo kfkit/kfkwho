@@ -9,4 +9,6 @@ Each line names a signed git tag, the tag object, the commit it points at
 produced by `git archive --format=tar <tag>` with git 2.55.0, and the
 SHA-256 of the released jar.
 
-No release yet.
+First release: v0.1.0, 2026-11-18, https://github.com/kfkit/kfkwho/releases/tag/v0.1.0
+
+v0.1.0 tag=b1e39a544275dd510b9d1473b64f2a603c876c73 commit=23251a0b92d5690810dd805dbf7ea571e29de770 archive_sha256=99befd147c86efcf07d47b5d59fe0a43a334279d19a2f7159581e1298e3aea15 jar_sha256=6d79dd82f5a2dc4af21305977902b79d37f0c307b7457ea0e53206aaba7de88a
