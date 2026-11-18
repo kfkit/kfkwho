@@ -133,7 +133,7 @@ class MetricsDocTest {
      */
     private void registerEveryType() throws Exception {
         authorizer.configure(Map.of(StandardAuthorizer.SUPER_USERS_CONFIG, "User:alice",
-                AuthorizerConfig.LABELS_CONFIG, String.join(",", AuthorizerConfig.KNOWN_LABELS),
+                AuthorizerConfig.TAGS_CONFIG, String.join(",", AuthorizerConfig.KNOWN_TAGS),
                 AuthorizerConfig.MAX_SERIES_CONFIG, "1"));
         authorizer.withPluginMetrics(new PluginMetricsImpl(pluginMetrics, Map.of()));
         authorizer.completeInitialLoad();
@@ -143,7 +143,7 @@ class MetricsDocTest {
                 .from(InetAddress.getByName("192.0.2.10")), readOrders);
         authorizer.authorize(RequestContext.of("bob", "billing-2", ApiKeys.FETCH)
                 .from(InetAddress.getByName("192.0.2.11")), readOrders);
-        assertEquals(Set.of("access", "client", "authorizer"), types());
+        assertEquals(Set.of("access", "client", "series"), types());
         assertEquals(2, SERVER.queryNames(new ObjectName("kfkwho:type=access,*"), null).size());
         assertEquals(2, SERVER.queryNames(new ObjectName("kfkwho:type=client,*"), null).size());
     }

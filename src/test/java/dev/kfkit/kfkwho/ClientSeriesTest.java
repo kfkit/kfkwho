@@ -42,12 +42,12 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** The client series, the labels that shape it, and the node roles that record at all. */
+/** The client series, the tags that shape it, and the node roles that record at all. */
 class ClientSeriesTest {
 
     private static final MBeanServer SERVER = ManagementFactory.getPlatformMBeanServer();
     private static final long TTL_SECONDS = 60;
-    private static final String SELF = "kfkwho:type=authorizer";
+    private static final String SELF = "kfkwho:type=series";
     private static final String ALICE = "kfkwho:type=client,principal=\"User:alice\",client-id=billing";
     private static final List<Action> READ_ORDERS_AND_BILLING = List.of(read("orders"), read("billing"));
     private static final RequestContext FETCH = RequestContext.of("alice", "billing-1", ApiKeys.FETCH);
@@ -122,9 +122,9 @@ class ClientSeriesTest {
     }
 
     @Test
-    void withoutTheListenerLabelThereIsNoListenerTag() throws Exception {
+    void withoutListenerSelectedThereIsNoListenerTag() throws Exception {
         // AC4: and requests over two listeners are one series.
-        start(Map.of(AuthorizerConfig.LABELS_CONFIG, "principal,client-id,security-protocol"));
+        start(Map.of(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,security-protocol"));
         authorizer.authorize(FETCH.over("INTERNAL", SecurityProtocol.PLAINTEXT), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.over("REPLICATION", SecurityProtocol.PLAINTEXT), READ_ORDERS_AND_BILLING);
 
@@ -147,7 +147,7 @@ class ClientSeriesTest {
 
     @Test
     void theClientAddressIsATagOnlyWhenSelected() throws Exception {
-        start(Map.of(AuthorizerConfig.LABELS_CONFIG, "principal,client-id,client-address"));
+        start(Map.of(AuthorizerConfig.TAGS_CONFIG, "principal,client-id,client-address"));
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.10")), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.11")), READ_ORDERS_AND_BILLING);
         authorizer.authorize(FETCH.from(InetAddress.getByName("192.0.2.11")), READ_ORDERS_AND_BILLING);
@@ -183,13 +183,13 @@ class ClientSeriesTest {
         assertEquals(2.0, self("client-series-count"));
         assertEquals(1.0, self("client-series-overflow-total"));
         // The access series have a cap of their own.
-        assertEquals(2.0, self("series-count"));
-        assertEquals(1.0, self("series-overflow-total"));
+        assertEquals(2.0, self("access-series-count"));
+        assertEquals(1.0, self("access-series-overflow-total"));
     }
 
     @Test
     void expiresAnIdleClientSeries() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         authorizer.authorize(FETCH, READ_ORDERS_AND_BILLING);
         assertEquals(1.0, self("client-series-count"));
 
@@ -199,7 +199,7 @@ class ClientSeriesTest {
         assertEquals(Set.of(), clientBeans());
         assertEquals(0.0, self("client-series-count"));
         assertEquals(1.0, self("client-series-evicted-total"));
-        assertEquals(2.0, self("series-evicted-total"));
+        assertEquals(2.0, self("access-series-evicted-total"));
     }
 
     @Test

@@ -43,7 +43,7 @@ import org.apache.kafka.common.metrics.stats.CumulativeCount;
  * Once {@code maxSeries} series exist, new keys are recorded into an
  * {@value AccessMetrics#OTHER} series instead, one per overflow slot (the
  * access series have one per verdict). Both are reported under
- * {@code kfkwho:type=authorizer} as {@code <prefix>series-count},
+ * {@code kfkwho:type=series} as {@code <prefix>series-count},
  * {@code <prefix>series-evicted-total} and {@code <prefix>series-overflow-total}.
  *
  * <p>The request thread never creates a series: creating one registers
@@ -53,7 +53,7 @@ import org.apache.kafka.common.metrics.stats.CumulativeCount;
  * into it once it is created, so each is counted once. At most
  * {@value #MAX_PENDING} series wait at a time; past that a new key is
  * recorded into overflow, as past the cap. A pending series counts against
- * the cap but not in {@code series-count}.
+ * the cap but not in {@code <prefix>series-count}.
  *
  * <p>A request that finds its series takes no lock of ours and allocates
  * nothing: the lookup key is the caller's per-thread probe, copied only when

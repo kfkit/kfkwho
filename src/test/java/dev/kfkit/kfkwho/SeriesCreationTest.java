@@ -56,7 +56,7 @@ class SeriesCreationTest {
 
     private static final MBeanServer SERVER = ManagementFactory.getPlatformMBeanServer();
     private static final long TTL_SECONDS = 60;
-    private static final String SELF = "kfkwho:type=authorizer";
+    private static final String SELF = "kfkwho:type=series";
     private static final String OTHER_ALLOWED = "kfkwho:type=access,principal=__other__,client-id=__other__,"
             + "resource-type=__other__,resource=__other__,operation=__other__,api=__other__,result=ALLOWED";
 
@@ -81,7 +81,7 @@ class SeriesCreationTest {
         readTopic("orders");
 
         assertEquals(Set.of(), accessBeans());
-        assertEquals(0.0, self("series-count"));
+        assertEquals(0.0, self("access-series-count"));
 
         creator.runAll();
 
@@ -89,7 +89,7 @@ class SeriesCreationTest {
         assertEquals(Set.of(topicSeries("orders")), accessBeans());
         assertEquals(3.0, SERVER.getAttribute(orders, "request-total"));
         assertEquals((double) time.milliseconds(), SERVER.getAttribute(orders, "last-seen-ms"));
-        assertEquals(1.0, self("series-count"));
+        assertEquals(1.0, self("access-series-count"));
 
         readTopic("orders");
         assertEquals(4.0, SERVER.getAttribute(orders, "request-total"));
@@ -134,8 +134,8 @@ class SeriesCreationTest {
             assertEquals((double) threads * perTopic,
                     SERVER.getAttribute(new ObjectName(topicSeries("orders-" + i)), "request-total"), "orders-" + i);
         }
-        assertEquals((double) topics, self("series-count"));
-        assertEquals(0.0, self("series-overflow-total"));
+        assertEquals((double) topics, self("access-series-count"));
+        assertEquals(0.0, self("access-series-overflow-total"));
     }
 
     @Test
@@ -145,14 +145,14 @@ class SeriesCreationTest {
         readTopic("billing");
         readTopic("payments");
 
-        assertEquals(0.0, self("series-count"));
-        assertEquals(1.0, self("series-overflow-total"));
+        assertEquals(0.0, self("access-series-count"));
+        assertEquals(1.0, self("access-series-overflow-total"));
         assertEquals(Set.of(OTHER_ALLOWED), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED), "request-total"));
 
         creator.runAll();
 
-        assertEquals(2.0, self("series-count"));
+        assertEquals(2.0, self("access-series-count"));
         assertEquals(Set.of(topicSeries("orders"), topicSeries("billing"), OTHER_ALLOWED), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(topicSeries("orders")), "request-total"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED), "request-total"));
@@ -165,23 +165,23 @@ class SeriesCreationTest {
             readTopic("orders-" + i);
         }
 
-        assertEquals(1.0, self("series-overflow-total"));
+        assertEquals(1.0, self("access-series-overflow-total"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(OTHER_ALLOWED), "request-total"));
 
         creator.runAll();
-        assertEquals((double) SeriesSet.MAX_PENDING, self("series-count"));
+        assertEquals((double) SeriesSet.MAX_PENDING, self("access-series-count"));
 
         // Seen again once there is room, the key that overflowed gets its own series.
         String last = "orders-" + SeriesSet.MAX_PENDING;
         readTopic(last);
         creator.runAll();
-        assertEquals((double) SeriesSet.MAX_PENDING + 1, self("series-count"));
+        assertEquals((double) SeriesSet.MAX_PENDING + 1, self("access-series-count"));
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(topicSeries(last)), "request-total"));
     }
 
     @Test
     void aPendingSeriesIsNotExpired() throws Exception {
-        start(Map.of(AuthorizerConfig.TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
+        start(Map.of(AuthorizerConfig.SERIES_TTL_SECONDS_CONFIG, String.valueOf(TTL_SECONDS)));
         readTopic("orders");
 
         time.advanceSeconds(TTL_SECONDS + 1);
@@ -190,7 +190,7 @@ class SeriesCreationTest {
 
         assertEquals(Set.of(topicSeries("orders")), accessBeans());
         assertEquals(1.0, SERVER.getAttribute(new ObjectName(topicSeries("orders")), "request-total"));
-        assertEquals(0.0, self("series-evicted-total"));
+        assertEquals(0.0, self("access-series-evicted-total"));
     }
 
     @Test
@@ -236,7 +236,7 @@ class SeriesCreationTest {
     }
 
     private static String topicSeries(String topic) {
-        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing,resource-type=topic,resource="
+        return "kfkwho:type=access,principal=\"User:alice\",client-id=billing,resource-type=TOPIC,resource="
                 + topic + ",operation=READ,api=FETCH,result=ALLOWED";
     }
 

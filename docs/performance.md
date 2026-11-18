@@ -104,7 +104,7 @@ no allocation per call, under 2% broker CPU under load.
   on every call, about a million per iteration. The background thread
   creates 20 000 to 30 000 series a second, so at most
   `AccessMetrics.MAX_PENDING` (1024) wait at a time and the rest, about 95%
-  in this run, are counted under `__other__` and in `series-overflow-total`.
+  in this run, are counted under `__other__` and in `access-series-overflow-total`.
   The figure above is the mean over both paths. A broker does not see a
   million new keys in two seconds; a burst of up to 1024 is counted in full.
 - **Contention: not measurable here, and the parent does not scale either.**
