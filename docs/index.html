@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How kfkwho works</title>
+<meta name="description" content="How kfkwho shows who talks to what on a cluster of Apache Kafka&reg;: an authorizer that counts every request per principal, client id, topic and operation, in fourteen slides and one small model.">
+<meta name="author" content="Ivan Abramov">
+<!--
+  One static page: no build step, no dependencies, nothing loaded from
+  elsewhere. The pictures are drawn on canvases by the script at the end,
+  pixel by pixel; the model on slide 11 is a small model of the bounds in
+  docs/metrics.md (the TTL, the cap, __other__, the client id rules), not the
+  real code.
+-->
+<style>
+  :root {
+    --bg: #fff1e8; --fg: #1d2b53; --muted: #5f574f; --rule: #c2c3c7;
+    --accent: #7e2553; --panel: #ffffff; --key: #ab5236;
+    --screen: #0e1428; --screen-edge: #1d2b53;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f1e; --fg: #fff1e8; --muted: #c2c3c7; --rule: #2a3350;
+      --accent: #ffec27; --panel: #131a30; --key: #ffa300;
+      --screen: #060912; --screen-edge: #29366f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-snap-type: y proximity; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  a { color: var(--accent); }
+  .slide {
+    min-height: 100vh; scroll-snap-align: start;
+    display: flex; flex-direction: column; justify-content: center;
+    max-width: 62rem; margin: 0 auto; padding: 3.5rem 1.25rem 4.5rem;
+  }
+  .kicker { color: var(--muted); font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 .6rem; }
+  h1, h2 {
+    margin: 0 0 1.1rem; line-height: 1.15; letter-spacing: .02em; text-transform: uppercase;
+    text-shadow: 3px 3px 0 var(--rule);
+  }
+  h1 { font-size: clamp(2.4rem, 8vw, 4.6rem); }
+  h2 { font-size: clamp(1.5rem, 4.4vw, 2.4rem); }
+  p, li { max-width: 46rem; }
+  p { margin: 0 0 1rem; }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.2rem; }
+  ol { padding-left: 1.8rem; }
+  li { margin: 0 0 .45rem; }
+  ul li::marker { content: "\25AA  "; color: var(--accent); }
+  strong { color: var(--accent); font-weight: 700; }
+  code { background: var(--panel); border: 1px solid var(--rule); padding: 0 .3em; font-size: .92em; }
+  pre {
+    background: var(--panel); border: 3px solid var(--fg); padding: .9rem 1rem; margin: 0 0 1rem;
+    overflow-x: auto; font-size: .88rem; line-height: 1.5; max-width: 100%;
+  }
+  pre code { background: none; border: 0; padding: 0; }
+  /* A picture is a small game screen, the same in light and dark. */
+  canvas.px {
+    display: block; width: 100%; height: auto; max-width: var(--w, 48rem);
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    background: var(--screen); border: 4px solid var(--screen-edge);
+    box-shadow: 6px 6px 0 var(--rule); margin: .4rem 0 1.4rem;
+  }
+  table { border-collapse: collapse; margin: 0 0 1rem; max-width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: .4rem .9rem .4rem 0; border-bottom: 2px solid var(--rule); }
+  th { font-size: .8rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .chip { display: inline-block; min-width: 5.2rem; padding: 0 .45rem; color: #1d2b53; font-weight: 700; text-align: center; }
+  .write { background: #ffec27; } .read { background: #29adff; } .describe { background: #ff77a8; } .create { background: #00e436; }
+  .controls { display: flex; flex-wrap: wrap; gap: .45rem; max-width: 48rem; margin: 0 0 .7rem; }
+  button {
+    font: inherit; font-size: .8rem; color: var(--fg); background: var(--panel);
+    border: 3px solid var(--fg); padding: .25rem .6rem; cursor: pointer; box-shadow: 3px 3px 0 var(--rule);
+  }
+  button:hover { background: var(--accent); color: var(--bg); }
+  button:active { transform: translate(3px, 3px); box-shadow: none; }
+  button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+  button:focus-visible, a:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+  .readout { max-width: 48rem; font-size: .88rem; display: grid; grid-template-columns: 1fr 1fr; gap: .2rem 1.5rem; margin: 0 0 .8rem; }
+  .readout b { color: var(--accent); }
+  /* The series of the model, as text: what the canvas shows, for those who do not see it. */
+  .series { max-width: 48rem; overflow-x: auto; min-height: 11.2em; font-size: .82rem; margin: 0 0 .6rem; }
+  .series table { margin: 0; width: 100%; }
+  .series th, .series td { padding: .15rem .8rem .15rem 0; white-space: nowrap; }
+  #feed { list-style: none; padding: 0; margin: 0 0 .8rem; max-width: 48rem; font-size: .82rem; color: var(--muted); min-height: 5.3em; }
+  #feed li { margin: 0; max-width: none; }
+  .hint { color: var(--muted); font-size: .85rem; }
+  nav.pager {
+    position: fixed; right: .8rem; bottom: .7rem; display: flex; align-items: center; gap: .5rem;
+    font-size: .8rem; color: var(--muted); background: var(--bg); padding: .2rem .4rem; border: 2px solid var(--rule);
+  }
+  nav.pager button { padding: 0 .5rem; box-shadow: none; border-width: 2px; }
+  footer { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem 4rem; color: var(--muted); font-size: .8rem; }
+  @media (max-width: 40rem) {
+    body { font-size: 15px; }
+    .readout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<section class="slide" id="s1">
+  <p class="kicker">kfkwho, an authorizer for Apache Kafka&reg; that counts</p>
+  <h1>Who talks<br>to what.</h1>
+  <canvas class="px" data-scene="title" width="192" height="56" style="--w:48rem" role="img"
+    aria-label="Pixel art: three robots named alice, bob and carol send requests through a gate into a broker. A board next to the broker lists who did what: alice writes orders, bob reads orders, carol describes orders."></canvas>
+  <p>A drop-in replacement for the broker's <code>StandardAuthorizer</code> that publishes JMX
+     metrics per principal, client id, topic, operation and request type. This is how, in
+     fourteen slides and one small model.</p>
+  <p class="hint">Scroll, or use the arrow keys.</p>
+</section>
+
+<section class="slide" id="s2">
+  <p class="kicker">1 &middot; the question</p>
+  <h2>Who produces to this topic?</h2>
+  <p>The producers of a topic are what you need to know before you change, move or delete it.
+     Consumers come right after: which clients read this topic, and when did they last show
+     up?</p>
+  <canvas class="px" data-scene="question" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: a topic named orders in the middle. Two robots on the left and two on the right carry question marks: who writes, who reads?"></canvas>
+  <p>Admins are the same question about other operations.</p>
+</section>
+
+<section class="slide" id="s3">
+  <p class="kicker">2 &middot; the catch</p>
+  <h2>The broker knows, and never says</h2>
+  <p>A broker knows, on every request, who sent it (principal, client id, address) and what it
+     touches (topic, group, operation). It never puts the two together in a metric.</p>
+  <canvas class="px" data-scene="split" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: two boards. Quota metrics know the client and not the topic; BrokerTopicMetrics know the topic and not the client. Nothing joins them."></canvas>
+  <ul>
+    <li>Quota metrics are per client, with no topic.</li>
+    <li><code>BrokerTopicMetrics</code> are per topic, with no client.</li>
+    <li>Client telemetry (KIP-714) needs new clients and a reporter plugin.</li>
+  </ul>
+  <p>So the question is answered by grepping request logs.</p>
+</section>
+
+<section class="slide" id="s4">
+  <p class="kicker">3 &middot; the idea</p>
+  <h2>Count at the authorizer</h2>
+  <p>The authorizer is the one hook that sees <strong>both sides of every request</strong>, for
+     clients of any version: the principal and the client id, the resource and the operation.
+     kfkwho extends the standard one. The verdict stays the broker's; the observation becomes a
+     metric.</p>
+  <canvas class="px" data-scene="idea" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: a robot walks through a gate in front of the broker. As it passes, the gate counts one. A list says what the gate sees: principal, client id, resource, operation."></canvas>
+</section>
+
+<section class="slide" id="s5">
+  <p class="kicker">4 &middot; the verdict</p>
+  <h2>It observes. It does not decide.</h2>
+  <p><code>MeteredStandardAuthorizer</code> is <code>StandardAuthorizer</code> plus metrics.
+     <code>authorize()</code> calls the parent first and returns exactly what the parent returns.
+     ACLs, <code>super.users</code> and <code>allow.everyone.if.no.acl.found</code> work as
+     before.</p>
+  <canvas class="px" data-scene="verdict" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: a request enters the StandardAuthorizer, which gives a verdict, allowed or denied. The verdict passes kfkwho, which counts one, and comes out unchanged."></canvas>
+  <ul>
+    <li>It <strong>extends</strong> the standard authorizer; it does not wrap it. The broker feeds
+        ACLs only to a <code>ClusterMetadataAuthorizer</code>, and a plain wrapper would deny
+        everything, silently.</li>
+    <li>Only brokers record. A dedicated controller passes the parent's verdict through and
+        publishes nothing.</li>
+  </ul>
+</section>
+
+<section class="slide" id="s6">
+  <p class="kicker">5 &middot; a series</p>
+  <h2>One counter per who and what</h2>
+  <p>An <strong>access series</strong> is one MBean per principal, client id, resource,
+     operation, request type and verdict. The tag order is fixed, so an exporter rule is one
+     line.</p>
+<pre><code>kfkwho:type=access,principal=…,client-id=…,resource-type=TOPIC,resource=…,operation=…,api=…,result=ALLOWED
+kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=…</code></pre>
+  <canvas class="px" data-scene="series" width="192" height="56" style="--w:48rem" role="img"
+    aria-label="Pixel art: a card with the seven tags of one access series: principal User:alice, client-id billing, resource-type TOPIC, resource orders, operation WRITE, api PRODUCE, result ALLOWED. Next to it the attribute request-total counts up."></canvas>
+  <p>It is counted once per action the broker authorizes: a Produce to three topics is three.
+     The <strong>client series</strong> is one per principal and client id, counted once per
+     <code>authorize</code> call: who is connected, without the resource.</p>
+</section>
+
+<section class="slide" id="s7">
+  <p class="kicker">6 &middot; reading it</p>
+  <h2>Producers first</h2>
+  <p>The <code>api</code> tag is the request type. It tells a client that really produced from
+     one that only fetched metadata about the topic.</p>
+  <table>
+    <tr><th>Client</th><th>Operation</th><th>Series</th></tr>
+    <tr><td>Producer</td><td><span class="chip write">WRITE</span></td><td><code>TOPIC</code>, <code>WRITE</code>/<code>PRODUCE</code></td></tr>
+    <tr><td>Only fetched metadata</td><td><span class="chip describe">DESCRIBE</span></td><td><code>TOPIC</code>, <code>DESCRIBE</code>/<code>METADATA</code>: it has not produced</td></tr>
+    <tr><td>Consumer</td><td><span class="chip read">READ</span></td><td><code>TOPIC</code>, <code>READ</code>/<code>FETCH</code>, plus <code>GROUP</code>, <code>READ</code> with <code>OFFSET_COMMIT</code>, <code>JOIN_GROUP</code>, <code>HEARTBEAT</code></td></tr>
+    <tr><td>Admin</td><td><span class="chip create">CREATE</span></td><td><code>CREATE</code>/<code>CREATE_TOPICS</code>, counted the same way</td></tr>
+  </table>
+  <canvas class="px" data-scene="reading" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: one robot throws a write record into the topic orders: WRITE/PRODUCE, it produced. Another robot sends a describe request that comes back: DESCRIBE/METADATA, it only asked."></canvas>
+  <p>For a <code>GROUP</code> series the resource is the group id, which links client ids to
+     consumer groups. Denied requests are counted too, with <code>result=DENIED</code>.</p>
+</section>
+
+<section class="slide" id="s8">
+  <p class="kicker">7 &middot; the hot path</p>
+  <h2>One lookup per action</h2>
+  <p><code>authorize()</code> runs for every topic of every Fetch and Produce, so what the
+     metrics add to it is measured, not guessed. A series seen before costs one lookup per action
+     and allocates nothing.</p>
+  <canvas class="px" data-scene="hot" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: on the request thread a robot runs past without stopping and drops a pending series. Below, on the thread kfkwho-series, another robot turns it into a created series."></canvas>
+  <p>On first sight of a key the request thread only leaves a <strong>pending series</strong>. A
+     background thread, <code>kfkwho-series</code>, creates it, at about 40 &micro;s each;
+     requests that arrive meanwhile are counted into it once it exists.</p>
+  <p>Measured with JMH on a cloud VM with 4 vCPU: the parent alone took 338 ns per call and the
+     metered authorizer 525 ns, 187 ns added; later runs, with the client series counted as
+     well, added 213 to 332 ns. First sight adds about 1.1 &micro;s on the request thread. No
+     allocation per call. The budget is under 1 &micro;s and under 3 &micro;s. The runs are in
+     <a href="https://github.com/kfkit/kfkwho/blob/main/docs/performance.md">Performance</a>.</p>
+</section>
+
+<section class="slide" id="s9">
+  <p class="kicker">8 &middot; bounded</p>
+  <h2>Idle series expire. A cap folds the rest.</h2>
+  <p>Clients come and go, and every new key is a series. Two bounds keep their number finite.</p>
+  <ul>
+    <li><strong>TTL</strong>: a series without a request for
+        <code>kfkwho.series.ttl.seconds</code> (600) is removed. Seen again, it starts from zero,
+        which Prometheus reads as a counter reset.</li>
+    <li><strong>Cap</strong>: at most <code>kfkwho.max.series</code> (10000) series of each type.
+        Past it, a new key is recorded into that type's <code>__other__</code> series, and
+        counted in <code>access-series-overflow-total</code>.</li>
+  </ul>
+  <canvas class="px" data-scene="bounded" width="192" height="52" style="--w:48rem" role="img"
+    aria-label="Pixel art: a shelf with six places for series. A sixth series arrives and fills it. A seventh finds the shelf full and falls into a box named __other__. Then one series sits idle until its bar runs out, and is removed."></canvas>
+  <p>Series that already exist keep counting, and a series freed by the TTL makes room for the
+     next new key. A non-zero overflow means some clients are not told apart.</p>
+</section>
+
+<section class="slide" id="s10">
+  <p class="kicker">9 &middot; names</p>
+  <h2>One application, one series</h2>
+  <p>Consumer and Streams clients put a per-instance suffix in their client id; left as is,
+     every restart is a new series. Client id rules rewrite the id before it becomes a tag.</p>
+  <table>
+    <tr><th>Client id, as sent</th><th>Tag</th></tr>
+    <tr><td><code>consumer-orders-app-3-6f1c2a4e-1b2c-4d5e-8f90-abcdef123456</code></td><td><code>consumer-orders-app</code></td></tr>
+    <tr><td><code>consumer-orders-app-3</code>, <code>billing-1</code></td><td><code>consumer-orders-app</code>, <code>billing</code></td></tr>
+  </table>
+  <canvas class="px" data-scene="names" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: three client ids, billing-1, billing-2 and billing-3, go through the rules and come out as one tag, billing: one series."></canvas>
+  <p>The rules are <code>kfkwho.client.id.rules</code>, each <code>pattern=&gt;replacement</code>
+     in Java regex syntax; the first whose pattern matches the whole id applies. Internal topics
+     (<code>__.*</code>) are not recorded at all: that is <code>kfkwho.resource.exclude</code>.</p>
+</section>
+
+<section class="slide" id="s11">
+  <p class="kicker">10 &middot; try it</p>
+  <h2>Start and stop clients</h2>
+  <canvas class="px" id="sim" width="256" height="112" style="--w:48rem" role="img"
+    aria-label="Model: six clients above a broker and two topics, orders and payments. Requests of running clients pass the authorizer in the broker and are counted in series. The text and the table below the picture say which series exist and what each has counted."></canvas>
+  <noscript><p class="hint">The pictures and the model need JavaScript; the text does not.</p></noscript>
+  <div class="controls" role="group" aria-label="Clients">
+    <button data-client="0">start billing-1</button>
+    <button data-client="1">start billing-2</button>
+    <button data-client="2">start reports-1</button>
+    <button data-client="3">start tool-1</button>
+    <button data-client="4">start stock-1</button>
+    <button data-client="5">start audit-1</button>
+  </div>
+  <div class="controls" role="group" aria-label="Clock of the model">
+    <button id="play" aria-pressed="true">run</button>
+    <button id="speed">speed &times;4</button>
+    <button id="reset">reset</button>
+  </div>
+  <div class="readout" aria-live="off">
+    <span>broker time <b id="r-t">0 s</b></span>
+    <span><code>access-series-count</code> <b id="r-count">0 of 4</b></span>
+    <span><code>access-series-evicted-total</code> <b id="r-evicted">0</b></span>
+    <span><code>access-series-overflow-total</code> <b id="r-overflow">0</b></span>
+    <span><code>kfkwho.series.ttl.seconds</code> 20</span>
+    <span><code>kfkwho.max.series</code> 4</span>
+  </div>
+  <div class="series">
+    <table aria-label="Access series that exist in the model">
+      <thead><tr><th>principal</th><th>client-id</th><th>resource</th><th>operation / api</th><th>request-total</th><th>idle</th></tr></thead>
+      <tbody id="series-rows"><tr><td colspan="6">no series</td></tr></tbody>
+    </table>
+  </div>
+  <ol id="feed" aria-label="Latest events"></ol>
+  <p class="hint">A model of the bounds, not the real code: one series per client, created at
+     once, every verdict <code>ALLOWED</code>. A real client leaves several series, and the
+     defaults are 600 s and 10000 series. Start <code>billing-2</code>: it counts into the series
+     of <code>billing-1</code>. Start everything: the fifth key goes to <code>__other__</code>.
+     Stop a client and count to twenty.</p>
+</section>
+
+<section class="slide" id="s12">
+  <p class="kicker">11 &middot; out of the broker</p>
+  <h2>JMX, then Prometheus</h2>
+  <p>The MBeans are in the <code>kfkwho</code> domain, published through the broker's own metrics
+     library and a <code>JmxReporter</code>, the way quota metrics are. The repository ships
+     rules for the Prometheus JMX Exporter, <code>jmx-exporter/kfkwho.yml</code>. Each tag
+     becomes a label of the same name, with <code>-</code> written as <code>_</code>.</p>
+  <canvas class="px" data-scene="out" width="192" height="48" style="--w:48rem" role="img"
+    aria-label="Pixel art: the broker publishes MBeans over JMX; the JMX Exporter with the rules in kfkwho.yml turns them into the series kfkwho_access_requests_total, which Prometheus scrapes."></canvas>
+  <p>Who produces to <code>orders</code>, per principal and client id:</p>
+<pre><code>sum by (principal, client_id) (
+  rate(kfkwho_access_requests_total{resource_type="TOPIC", resource="orders",
+                                    operation="WRITE", api="PRODUCE", result="ALLOWED"}[5m]))</code></pre>
+</section>
+
+<section class="slide" id="s13">
+  <p class="kicker">12 &middot; limits</p>
+  <h2>What it does not do</h2>
+  <ul>
+    <li>It never changes a verdict, and it keeps no ACLs: they are in the cluster metadata.</li>
+    <li>It does not leave an open cluster open. A cluster that ran <strong>without an
+        authorizer</strong> starts enforcing ACLs the moment it gets one. To observe without
+        enforcing, set <code>allow.everyone.if.no.acl.found=true</code> and put the principals
+        the brokers and controllers use between themselves in <code>super.users</code>.</li>
+    <li>It counts actions the broker authorizes. Bytes and records are not in these metrics.</li>
+    <li>Past the cap it does not tell clients apart: who they are is lost for as long as the cap
+        stays reached.</li>
+    <li>The exporter rules are a first, minimal version: they export <code>request-total</code>
+        of the access series and nothing else. A Grafana dashboard has not landed yet.</li>
+    <li>Nothing has run on a production cluster yet, and a setting or a metric may still be
+        renamed; every such change is listed in the changelog.</li>
+    <li>Apache Kafka 4.1 and later, KRaft, is the target. Earlier releases are not tested.</li>
+  </ul>
+</section>
+
+<section class="slide" id="s14">
+  <p class="kicker">13 &middot; why believe any of this</p>
+  <h2>How it is tested</h2>
+  <canvas class="px" data-scene="tested" width="192" height="40" style="--w:48rem" role="img"
+    aria-label="Pixel art: the jar that ships goes to three real brokers in a row; each lights up and reports OK."></canvas>
+  <ul>
+    <li><strong>Unit tests</strong> drive the real <code>StandardAuthorizer</code> without a
+        broker. A test exercises the class that ships, or it is deleted.</li>
+    <li><strong>An integration test</strong> runs the built jar as the authorizer of an
+        <code>apache/kafka</code> broker, with the JMX Exporter agent and the shipped rules, and
+        checks the exporter's output. CI runs it on every supported broker release.</li>
+    <li><strong>The docs are tested</strong>: a test fails when the configuration table, the
+        metrics tables or the list of public types disagree with the code.</li>
+    <li><strong>Benchmarks</strong> measure the hot path; every change to
+        <code>authorize()</code> quotes them against the budget.</li>
+    <li>Every new metric dimension needs a cap, a TTL or an allowlist, and a test that proves
+        the bound.</li>
+  </ul>
+</section>
+
+<section class="slide" id="s15">
+  <p class="kicker">14 &middot; go</p>
+  <h2>Four things on every node</h2>
+  <ol>
+    <li>the kfkwho jar on the broker's classpath;</li>
+    <li><code>authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer</code>;</li>
+    <li>the Prometheus JMX Exporter agent with the rules in <code>jmx-exporter/kfkwho.yml</code>;</li>
+    <li>a rolling restart, one node at a time.</li>
+  </ol>
+  <p>In the <code>apache/kafka</code> image, with the jar, the agent and the rules under
+     <code>/opt/kfkwho</code>, add to the environment the broker already has:</p>
+<pre><code>CLASSPATH=/opt/kfkwho/kfkwho.jar
+KAFKA_AUTHORIZER_CLASS_NAME=dev.kfkit.kfkwho.MeteredStandardAuthorizer
+KAFKA_SUPER_USERS=User:admin
+KAFKA_OPTS=-javaagent:/opt/kfkwho/jmx_prometheus_javaagent.jar=9404:/opt/kfkwho/kfkwho.yml</code></pre>
+  <p>The jar is on the releases page, with its SHA-256 and a cosign signature. A cluster that
+     ran without an authorizer starts enforcing ACLs: read Installation first.</p>
+  <ul>
+    <li><a href="https://github.com/kfkit/kfkwho">Source on GitHub</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/install.md">Installation: the image, a tarball, Strimzi</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/config.md">Configuration</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/metrics.md">Metrics: MBeans, tags, Prometheus series</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/embedding.md">Embedding: the same metrics from another authorizer</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/releases">Releases</a></li>
+    <li><a href="https://kfkit.dev/">kfkit</a></li>
+  </ul>
+  <p>With <a href="https://claude.com/product/claude-code">Claude Code</a>, the repository
+     carries a skill for adopting kfkwho: what to find out first, the order of the steps, what
+     not to do.</p>
+<pre><code>/plugin marketplace add kfkit/kfkwho
+/plugin install kfkwho@kfkwho</code></pre>
+  <canvas class="px" data-scene="end" width="192" height="40" style="--w:48rem" role="img"
+    aria-label="Pixel art: the robot waves. Who talks to what."></canvas>
+</section>
+
+</main>
+
+<footer>
+  Written and maintained by <a rel="me" href="https://www.linkedin.com/in/ivan-abramov-8605078/">Ivan Abramov</a>.
+  Apache-2.0. Apache Kafka&reg; is a registered trademark of The Apache Software Foundation;
+  kfkit is not affiliated with or endorsed by the ASF.
+</footer>
+
+<nav class="pager" aria-label="Slides">
+  <button id="prev" aria-label="Previous slide">&larr;</button>
+  <span id="pos">1 / 15</span>
+  <button id="next" aria-label="Next slide">&rarr;</button>
+</nav>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- palette
+// Sixteen colours, used by every picture.
+const C = {
+  navy: "#1d2b53", plum: "#7e2553", green: "#008751", brown: "#ab5236",
+  dark: "#5f574f", light: "#c2c3c7", white: "#fff1e8", red: "#ff004d",
+  orange: "#ffa300", yellow: "#ffec27", lime: "#00e436", blue: "#29adff",
+  lavender: "#83769c", pink: "#ff77a8", peach: "#ffccaa", black: "#060912",
+};
+// An operation has one colour everywhere, on the canvases and in the chips.
+const OP = { WRITE: C.yellow, READ: C.blue, DESCRIBE: C.pink, CREATE: C.lime };
+
+// ---------------------------------------------------------------- drawing
+const R = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h); };
+
+// A 3x5 font: fifteen bits a glyph, rows from the top.
+const FONT = {
+  A: "010101111101101", B: "110101110101110", C: "011100100100011", D: "110101101101110",
+  E: "111100110100111", F: "111100110100100", G: "011100101101011", H: "101101111101101",
+  I: "111010010010111", J: "001001001101010", K: "101101110101101", L: "100100100100111",
+  M: "101111111101101", N: "111101101101101", O: "010101101101010", P: "110101110100100",
+  Q: "010101101110011", R: "110101110101101", S: "011100010001110", T: "111010010010010",
+  U: "101101101101111", V: "101101101101010", W: "101101111111101", X: "101101010101101",
+  Y: "101101010010010", Z: "111001010100111",
+  0: "111101101101111", 1: "010110010010111", 2: "110001010100111", 3: "110001010001110",
+  4: "101101111001001", 5: "111100110001110", 6: "011100111101111", 7: "111001010010010",
+  8: "111101111101111", 9: "111101111001110",
+  ".": "000000000000010", ":": "000010000010000", "-": "000000111000000", "/": "001001010100100",
+  "=": "000111000111000", "+": "000010111010000", "!": "010010010000010", "?": "110001010000010",
+  ">": "100010001010100", "<": "001010100010001", "_": "000000000000111",
+};
+function text(g, s, x, y, c) {
+  for (const ch of String(s).toUpperCase()) {
+    const bits = FONT[ch];
+    if (bits) for (let i = 0; i < 15; i++) if (bits[i] === "1") R(g, x + i % 3, y + (i / 3 | 0), 1, 1, c);
+    x += 4;
+  }
+}
+const textW = s => String(s).length * 4 - 1;
+
+// A sprite is rows of letters; the legend maps a letter to a colour.
+function sprite(g, rows, x, y, legend) {
+  rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (legend[row[i]]) R(g, x + i, y + j, 1, 1, legend[row[i]]); });
+}
+const ROBOT = ["....aa....", "....dd....", ".llllllll.", ".lwnllwnl.", ".llllllll.", ".lnnnnnnl.", ".llllllll.", "dd.llll.dd", "...llll...", "...l..l...", "..dd..dd.."];
+
+function robot(g, x, y, f, tint) {
+  const bob = f % 2;
+  sprite(g, ROBOT, x, y + bob, { a: f % 4 < 2 ? C.red : C.yellow, d: C.dark, l: tint || C.light, w: C.white, n: C.navy });
+}
+// A rack: three shelves, each with a light.
+function server(g, x, y, led) {
+  R(g, x, y, 14, 19, C.dark); R(g, x + 1, y + 1, 12, 17, C.lavender);
+  for (let i = 0; i < 3; i++) { R(g, x + 2, y + 2 + i * 5, 10, 4, C.navy); R(g, x + 3, y + 3 + i * 5, 2, 2, led); R(g, x + 7, y + 4 + i * 5, 4, 1, C.dark); }
+  R(g, x - 1, y + 19, 16, 1, C.dark);
+}
+// A request, or a series: a tile with one letter, or none.
+function tile(g, x, y, letter, c) { R(g, x, y, 7, 7, c); text(g, letter, Math.round(x) + 2, Math.round(y) + 1, C.navy); }
+// The authorizer: a gate every request passes. Its arm lifts and its lamp turns green.
+function gate(g, x, y, open) {
+  R(g, x, y, 2, 12, C.brown); R(g, x + 14, y, 2, 12, C.brown);
+  if (open) R(g, x + 2, y, 2, 7, C.lime); else R(g, x + 2, y + 5, 12, 2, C.orange);
+  R(g, x + 14, y - 2, 2, 2, open ? C.lime : C.red);
+}
+function frame(g, x, y, w, h, c) { R(g, x, y, w, 1, c); R(g, x, y + h - 1, w, 1, c); R(g, x, y, 1, h, c); R(g, x + w - 1, y, 1, h, c); }
+function ground(g, w, y) { for (let x = 0; x < w; x += 2) R(g, x, y, 1, 1, C.navy); }
+function dots(g, x0, x1, y, c) { for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x += 3) R(g, x, y, 1, 1, c); }
+function bar(g, x, y, w, frac, c) { frame(g, x, y, w, 5, C.light); R(g, x + 1, y + 1, Math.max(0, Math.round((w - 2) * Math.min(1, frac))), 3, c); }
+
+// ---------------------------------------------------------------- scenes
+// Each scene draws one frame; f counts frames at about six a second.
+const SCENES = {
+  title(g, f) {
+    const who = [["ALICE", 6, "W", OP.WRITE], ["BOB", 28, "R", OP.READ], ["CAROL", 50, "D", OP.DESCRIBE]];
+    const k = (f >> 3) % 3, p = (f % 8) / 7;        // one request at a time, each client in turn
+    who.forEach(([name, x], i) => { robot(g, x, 33, f + i); text(g, name, x + 5 - (textW(name) >> 1), 49, i === k ? C.white : C.light); });
+    dots(g, 64, 82, 38, C.lavender); tile(g, 62 + p * 16, 35, who[k][2], who[k][3]);
+    gate(g, 84, 33, p > 0.6);
+    text(g, "BROKER", 102, 18, C.light); server(g, 106, 26, C.lime);
+    dots(g, 122, 128, 34, C.lavender);
+    frame(g, 130, 8, 60, 36, C.lavender); text(g, "WHO", 134, 11, C.peach); text(g, "WHAT", 164, 11, C.peach);
+    who.forEach(([name, , op, c], i) => {
+      const y = 19 + i * 7, lit = i === k && p > 0.6;
+      text(g, name, 134, y, lit ? C.white : C.light); text(g, op, 158, y, c); text(g, "ORDERS", 164, y, lit ? C.white : C.light);
+    });
+    ground(g, 126, 46);
+  },
+  question(g, f) {
+    text(g, "WHO WRITES?", 4, 2, OP.WRITE); text(g, "WHO READS?", 149, 2, OP.READ);
+    [8, 28, 154, 174].forEach((x, i) => { robot(g, x, 20, f + i); text(g, "?", x + 4, 12 + (f + i) % 2, C.yellow); });
+    text(g, "TOPIC ORDERS", 72, 8, C.peach); frame(g, 74, 17, 44, 11, C.lavender);
+    for (let i = 0; i < 5; i++) tile(g, 76 + i * 8, 19, "", (i + (f >> 2)) % 5 ? C.orange : C.peach);
+    dots(g, 42, 72, 23, C.lavender); dots(g, 120, 150, 23, C.lavender);
+    ground(g, 192, 33);
+    text(g, "BEFORE YOU CHANGE IT. MOVE IT. DELETE IT.", 14, 39, C.light);
+  },
+  split(g, f) {
+    frame(g, 4, 5, 82, 30, C.lavender); text(g, "QUOTA METRICS", 8, 8, C.peach);
+    text(g, "CLIENT", 8, 18, C.light); text(g, "YES", 52, 18, C.lime);
+    text(g, "TOPIC", 8, 26, C.light); text(g, "NO", 52, 26, C.red);
+    frame(g, 106, 5, 82, 30, C.lavender); text(g, "BROKERTOPICMETRICS", 110, 8, C.peach);
+    text(g, "TOPIC", 110, 18, C.light); text(g, "YES", 154, 18, C.lime);
+    text(g, "CLIENT", 110, 26, C.light); text(g, "NO", 154, 26, C.red);
+    text(g, "X", 94, 18, f % 4 < 2 ? C.red : C.dark);   // nothing joins the two
+    text(g, "NO METRIC HAS BOTH SIDES", 48, 40, C.light);
+  },
+  idea(g, f) {
+    const p = (f % 16) / 15, x = 6 + Math.round(p * 92), at = x > 70 && x < 98;
+    text(g, "AUTHORIZER", 72, 3, C.peach);
+    server(g, 112, 15, C.lime); robot(g, x, 22, f); gate(g, 84, 22, at);
+    if (x > 80) text(g, "+1", 88, 12, C.yellow);
+    text(g, "IT SEES", 134, 3, C.peach);
+    ["PRINCIPAL", "CLIENT ID", "RESOURCE", "OPERATION"].forEach((s, i) => text(g, s, 134, 11 + i * 7, at ? C.white : C.light));
+    ground(g, 130, 35);
+    text(g, "EVERY REQUEST PASSES HERE", 6, 41, C.light);
+  },
+  verdict(g, f) {
+    const denied = (f / 18 | 0) % 2 === 1, p = (f % 18) / 17, x = 34 + Math.round(p * 126);
+    text(g, "REQ", 4, 13, C.light); dots(g, 18, 28, 15, C.lavender);
+    frame(g, 30, 8, 78, 15, C.lavender); text(g, "STANDARDAUTHORIZER", 34, 13, C.peach);
+    dots(g, 110, 122, 15, C.lavender);
+    frame(g, 124, 8, 44, 15, C.lavender); text(g, "KFKWHO", 128, 13, C.peach);
+    if (x > 120) text(g, "+1", 156, 13, C.yellow);
+    text(g, denied ? "DENIED" : "ALLOWED", x, 28, denied ? C.red : C.lime);   // the same word all the way
+    text(g, "OUT COMES WHAT THE PARENT RETURNED", 30, 40, C.light);
+  },
+  series(g, f) {
+    const tags = [["PRINCIPAL", "USER:ALICE"], ["CLIENT-ID", "BILLING"], ["RESOURCE-TYPE", "TOPIC"], ["RESOURCE", "ORDERS"],
+                  ["OPERATION", "WRITE"], ["API", "PRODUCE"], ["RESULT", "ALLOWED"]];
+    frame(g, 4, 2, 108, 53, C.lavender);
+    tags.forEach(([name, value], i) => { text(g, name, 8, 5 + i * 7, C.light); text(g, value, 66, 5 + i * 7, i === (f >> 2) % 7 ? C.white : C.peach); });
+    text(g, "REQUEST-TOTAL", 122, 8, C.light); text(g, 1040 + f, 122, 16, C.yellow);
+    if (f % 2) text(g, "+1", 150, 16, C.lime);
+    text(g, "REQUEST-RATE", 122, 31, C.dark); text(g, "LAST-SEEN-MS", 122, 41, C.dark);
+  },
+  reading(g, f) {
+    const p = (f % 12) / 11, q = p < 0.5 ? p * 2 : 2 - p * 2;
+    text(g, "TOPIC ORDERS", 73, 4, C.peach); frame(g, 74, 13, 44, 11, C.lavender);
+    for (let i = 0; i < 5; i++) tile(g, 76 + i * 8, 15, i === 0 && p > 0.9 ? "W" : "", i === 0 && p > 0.9 ? OP.WRITE : C.orange);
+    robot(g, 22, 16, f); robot(g, 160, 16, f + 1);
+    if (p <= 0.9) tile(g, 34 + p * 36, 16 - Math.sin(p * 3.14) * 8, "W", OP.WRITE);   // lands in the log
+    tile(g, 150 - q * 28, 16, "D", OP.DESCRIBE);                                    // asks, and comes back
+    ground(g, 192, 29);
+    text(g, "WRITE/PRODUCE", 2, 34, OP.WRITE); text(g, "IT PRODUCED", 2, 41, C.light);
+    text(g, "DESCRIBE/METADATA", 122, 34, OP.DESCRIBE); text(g, "IT ONLY ASKED", 122, 41, C.light);
+  },
+  hot(g, f) {
+    const q = f % 20, made = q >= 16;               // the runner drops a pending series at q = 8
+    text(g, "REQUEST THREAD", 2, 2, C.peach); text(g, "ONE LOOKUP. NO WAITING.", 98, 2, C.light);
+    robot(g, 4 + q * 9, 9, f); ground(g, 192, 22);
+    text(g, "THREAD KFKWHO-SERIES", 2, 26, C.peach); robot(g, 70, 33, f >> 1); ground(g, 192, 46);
+    if (q >= 8) {
+      tile(g, 86, Math.min(36, 12 + (q - 8) * 4), made ? "S" : "P", made ? C.lime : C.orange);
+      text(g, made ? "SERIES CREATED" : "PENDING SERIES", 98, 37, made ? C.lime : C.orange);
+    }
+  },
+  bounded(g, f) {
+    // Twelve frames each: a sixth series arrives; a seventh finds no place; one goes idle and is removed.
+    const q = f % 36, CAP = 6, hue = [C.yellow, C.blue, C.pink, C.lime, C.blue, C.yellow];
+    const have = [1, 1, 1, 1, 1, q >= 6 ? 1 : 0]; if (q >= 32) have[2] = 0;
+    const n = have.reduce((a, b) => a + b, 0), over = q >= 20 && q < 24;
+    text(g, "SERIES " + n + "/" + CAP, 8, 4, n >= CAP ? C.orange : C.light);
+    frame(g, 8, 12, 75, 13, C.lavender);
+    have.forEach((h, i) => { const x = 11 + i * 12; if (h) tile(g, x, 15, "", i === 2 && q >= 24 ? C.dark : hue[i]); else frame(g, x, 15, 7, 7, C.navy); });
+    if (q < 6) tile(g, 107 - q * 6, 15, "", hue[5]);
+    if (q >= 12 && q < 20) {
+      const s = q - 12;                              // up to the full shelf, then over into the box
+      if (s < 4) tile(g, 110 - s * 6, 15, "", C.pink);
+      else tile(g, 92 + (s - 4) * 11, 15 - Math.sin((s - 4) / 4 * 3.14) * 6 + (s - 4) * 2, "", C.pink);
+    }
+    frame(g, 120, 26, 44, 14, over ? C.orange : C.lavender); text(g, "__OTHER__", 124, 31, over ? C.orange : C.light);
+    if (over) text(g, "+1", 168, 31, C.orange);
+    if (q >= 24 && q < 32) { bar(g, 29, 27, 19, 1 - (q - 24) / 8, C.orange); text(g, "TTL", 51, 27, C.orange); }
+    text(g, "IDLE FOR THE TTL: REMOVED", 8, 44, q >= 24 ? C.white : C.dark);
+    text(g, "PAST THE CAP", 120, 44, q >= 12 && q < 24 ? C.white : C.dark);
+  },
+  names(g, f) {
+    ["BILLING-1", "BILLING-2", "BILLING-3"].forEach((id, i) => {
+      const y = 5 + i * 11;
+      text(g, id, 6, y, C.light); dots(g, 46, 79, y + 2, C.lavender); R(g, 46 + (f * 3 + i * 9) % 33, y + 2, 2, 1, C.yellow);
+    });
+    frame(g, 82, 2, 34, 33, C.lavender); text(g, "RULES", 90, 16, C.peach);
+    dots(g, 118, 138, 18, C.lavender); R(g, 118 + (f * 3) % 20, 18, 2, 1, C.yellow);
+    frame(g, 140, 12, 33, 13, C.lime); text(g, "BILLING", 143, 16, C.lime);
+    robot(g, 178, 12, f); text(g, "ONE SERIES", 140, 29, C.light);
+    text(g, "EVERY INSTANCE OF AN APPLICATION: ONE SERIES", 8, 41, C.dark);
+  },
+  out(g, f) {
+    server(g, 8, 8, C.lime); text(g, "BROKER", 4, 31, C.light);
+    text(g, "JMX", 32, 9, C.peach); dots(g, 26, 50, 17, C.lavender); R(g, 26 + (f * 3) % 23, 16, 2, 3, C.yellow);
+    frame(g, 52, 10, 56, 15, C.lavender); text(g, "JMX EXPORTER", 57, 15, C.light); text(g, "KFKWHO.YML", 61, 28, C.yellow);
+    text(g, "SCRAPE", 110, 9, C.peach); dots(g, 110, 132, 17, C.lavender); R(g, 130 - (f * 3) % 20, 16, 2, 3, C.yellow);
+    frame(g, 134, 10, 52, 15, C.lavender); text(g, "PROMETHEUS", 141, 15, C.light);
+    text(g, "KFKWHO_ACCESS_REQUESTS_TOTAL", 40, 40, C.lime);
+  },
+  tested(g, f) {
+    const k = (f >> 2) % 5;                         // one broker after another
+    text(g, "THE JAR THAT SHIPS", 4, 3, C.peach);
+    R(g, 16, 12, 17, 9, C.orange); text(g, "JAR", 19, 14, C.navy);
+    dots(g, 36, 88, 17, C.lavender); R(g, 36 + (f * 4) % 52, 16, 2, 3, C.yellow);
+    for (let i = 0; i < 3; i++) { const x = 92 + i * 34; server(g, x, 8, i < k ? C.lime : C.dark); if (i < k) text(g, "OK", x + 3, 31, C.lime); }
+    text(g, "REAL BROKERS", 4, 31, C.light);
+  },
+  end(g, f) {
+    robot(g, 91, 8, f); R(g, 101, 15 - (f % 2) * 2, 2, 2, C.light);      // a wave
+    ground(g, 192, 22); text(g, "WHO TALKS TO WHAT", 62, 27, C.peach);
+  },
+};
+
+// ---------------------------------------------------------------- model
+// A small model of the bounds in docs/metrics.md: one access series per
+// client, the TTL, the cap and __other__, with the default client id rules of
+// docs/config.md. Series appear at once; in the broker a background thread
+// creates them. Nothing here touches the page: drawing and the readout are
+// further down.
+const TTL = 20, MAX_SERIES = 4;      // kfkwho.series.ttl.seconds and kfkwho.max.series, small enough to watch
+const OTHER = "__other__";
+// The first rule whose pattern matches the whole client id rewrites it.
+const CLIENT_ID_RULES = [
+  [/^(.+?)(-\d+)?-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, "$1"],
+  [/^(.+)-\d+$/, "$1"],
+];
+function normalise(clientId) {
+  for (const [pattern, replacement] of CLIENT_ID_RULES) if (pattern.test(clientId)) return clientId.replace(pattern, replacement);
+  return clientId;
+}
+// Who there is: a principal, a client id as sent, and the one thing the client does, every so many seconds.
+const CLIENTS = [
+  { principal: "User:alice", clientId: "billing-1", topic: "orders", operation: "WRITE", api: "PRODUCE", every: 1.0 },
+  { principal: "User:alice", clientId: "billing-2", topic: "orders", operation: "WRITE", api: "PRODUCE", every: 1.5 },
+  { principal: "User:bob", clientId: "reports-1", topic: "orders", operation: "READ", api: "FETCH", every: 0.8 },
+  { principal: "User:carol", clientId: "tool-1", topic: "orders", operation: "DESCRIBE", api: "METADATA", every: 2.0 },
+  { principal: "User:dave", clientId: "stock-1", topic: "payments", operation: "WRITE", api: "PRODUCE", every: 1.2 },
+  { principal: "User:erin", clientId: "audit-1", topic: "payments", operation: "READ", api: "FETCH", every: 1.0 },
+];
+let M;
+function reset() {
+  M = { t: 0, series: new Map(), other: null, evicted: 0, overflow: 0, lookAt: 1, feed: [],
+        clients: CLIENTS.map(c => ({ ...c, running: false, next: 0, sent: 0, into: null })) };
+  for (const i of [0, 2]) { M.clients[i].running = true; M.clients[i].next = M.clients[i].every / 2; }
+}
+function say(msg) { M.feed.unshift("t=" + M.t.toFixed(0) + " s  " + msg); M.feed.length = Math.min(M.feed.length, 4); }
+
+// The parent decides. In this model every client has the ACL it needs.
+const parent = () => "ALLOWED";
+// authorize: the parent's verdict first, then the count; the verdict goes back as it came.
+function authorize(c) {
+  const result = parent(c);
+  record(c, result);
+  return result;
+}
+// The tags of an access series, in their fixed order.
+const tagsOf = (c, result) => [c.principal, normalise(c.clientId), "TOPIC", c.topic, c.operation, c.api, result];
+const name = tags => tags[0] + ", " + tags[1] + ", " + tags[3] + ", " + tags[4] + "/" + tags[5];
+function record(c, result) {
+  const tags = tagsOf(c, result), key = tags.join(","), t = M.t;
+  const s = M.series.get(key);
+  if (s) { s.total++; s.seen = t; c.into = key; return; }             // the steady state: one lookup
+  if (M.series.size >= MAX_SERIES) {                                   // the cap: no series of its own
+    if (!M.other) M.other = { total: 0, seen: t };
+    M.other.total++; M.other.seen = t; M.overflow++;
+    if (c.into !== OTHER) say("cap reached: " + name(tags) + " is recorded into " + OTHER);
+    c.into = OTHER; return;
+  }
+  M.series.set(key, { key, tags, total: 1, seen: t });               // first sight: a new series, from one
+  c.into = key; say("series created: " + name(tags));
+}
+// Removes what saw no request for the TTL; the overflow series too, uncounted.
+function expire() {
+  const forget = key => { for (const c of M.clients) if (c.into === key) c.into = null; };
+  for (const [key, s] of M.series) if (M.t - s.seen > TTL) {
+    M.series.delete(key); M.evicted++; forget(key); say("series removed after the TTL: " + name(s.tags));
+  }
+  if (M.other && M.t - M.other.seen > TTL) { M.other = null; forget(OTHER); say(OTHER + " removed after the TTL"); }
+}
+function step(dt) {
+  M.t += dt;
+  for (const c of M.clients) while (c.running && c.next <= M.t) { authorize(c); c.sent++; c.next += c.every; }
+  if (M.t >= M.lookAt) { expire(); M.lookAt += 1; }                  // idle series are looked for once a second
+}
+function toggle(i) {
+  const c = M.clients[i];
+  c.running = !c.running;
+  if (c.running) { c.next = M.t + c.every / 2; c.sent = 0; }
+  say(c.principal + ", client id " + c.clientId + (c.running ? " starts" : " stops"));
+}
+
+// ---------------------------------------------------------------- the model on the page
+// Six lanes: a client on top, its place in the authorizer, its topic below.
+function drawSim(g, f) {
+  const W = 256, n = M.series.size, count = "SERIES " + n + "/" + MAX_SERIES;
+  frame(g, 1, 30, 254, 39, C.lavender);
+  text(g, "BROKER", 6, 60, C.light); text(g, "PARENT DECIDES. KFKWHO COUNTS.", 40, 60, C.lavender);
+  text(g, count, 250 - textW(count), 60, n >= MAX_SERIES ? C.orange : C.light);
+  frame(g, 1, 73, 169, 25, C.lavender); text(g, "TOPIC ORDERS", 6, 76, C.peach);
+  frame(g, 171, 73, 84, 25, C.lavender); text(g, "TOPIC PAYMENTS", 176, 76, C.peach);
+  M.clients.forEach((c, i) => {
+    const x0 = 2 + i * 42, on = c.running, col = OP[c.operation];
+    const phase = 1 - (c.next - M.t) / c.every, passed = on && c.sent > 0 && phase < 0.4;
+    // the client: its principal, and its client id as sent
+    robot(g, x0 + 1, 3, on ? f + i : 0, on ? undefined : C.dark);
+    text(g, c.principal.slice(5), x0 + 13, 6, on ? C.peach : C.dark);
+    text(g, c.clientId, x0 + 1, 17, on ? C.light : C.dark);
+    // a request on its way: down to the authorizer, through it, and on
+    if (on && phase >= 0.5) R(g, x0 + 5, 24 + (phase - 0.5) * 14, 3, 3, col);
+    if (passed) R(g, x0 + 5, 41 + phase * 37, 3, 3, col);
+    // its lane in the authorizer
+    R(g, x0 + 2, 34, 1, 6, C.brown); R(g, x0 + 10, 34, 1, 6, C.brown); R(g, x0 + 3, 36, 7, 1, passed ? C.lime : C.dark);
+    if (passed) text(g, "+1", x0 + 13, 34, C.yellow);
+    // the series its requests are counted in, and how long that series has been idle
+    const s = M.series.get(c.into), other = c.into === OTHER && M.other;
+    if (s) { text(g, s.total, x0 + 13, 42, on ? C.white : C.light); bar(g, x0 + 13, 49, 27, 1 - (M.t - s.seen) / TTL, on ? C.lime : C.orange); }
+    else if (other) { text(g, "OTHER", x0 + 13, 42, C.orange); bar(g, x0 + 13, 49, 27, 1 - (M.t - other.seen) / TTL, C.orange); }
+    else text(g, "-", x0 + 13, 42, C.dark);
+    // what it does to the topic; the words light up as a request arrives
+    text(g, c.operation, x0 + 4, 84, on ? col : C.dark); text(g, c.api, x0 + 4, 91, passed ? C.white : on ? C.light : C.dark);
+  });
+  // lanes that share a series: one line under both
+  for (const s of M.series.values()) {
+    const lanes = M.clients.map((c, i) => c.into === s.key ? i : -1).filter(i => i >= 0);
+    if (lanes.length > 1) R(g, 15 + lanes[0] * 42, 56, (lanes[lanes.length - 1] - lanes[0]) * 42 + 27, 1, C.yellow);
+  }
+  ground(g, W, 101); text(g, "IDLE FOR THE TTL: REMOVED. PAST THE CAP: __OTHER__.", 26, 105, C.dark);
+}
+
+function readout() {
+  const $ = id => document.getElementById(id);
+  const idle = s => Math.min(TTL, Math.max(0, M.t - s.seen)).toFixed(0) + " s";
+  const row = cells => "<tr><td>" + cells.join("</td><td>") + "</td></tr>";
+  $("r-t").textContent = M.t.toFixed(0) + " s";
+  $("r-count").textContent = M.series.size + " of " + MAX_SERIES;
+  $("r-evicted").textContent = M.evicted;
+  $("r-overflow").textContent = M.overflow;
+  const rows = [...M.series.values()].map(s => row([s.tags[0], s.tags[1], s.tags[3], s.tags[4] + " / " + s.tags[5], s.total, idle(s)]));
+  if (M.other) rows.push(row([OTHER, OTHER, OTHER, OTHER + " / " + OTHER, M.other.total, idle(M.other)]));
+  $("series-rows").innerHTML = rows.join("") || '<tr><td colspan="6">no series</td></tr>';
+  $("feed").innerHTML = M.feed.map(m => "<li>" + m + "</li>").join("");
+  for (const b of document.querySelectorAll("button[data-client]")) {
+    const c = M.clients[+b.dataset.client];
+    b.setAttribute("aria-pressed", c.running);
+    b.textContent = (c.running ? "stop " : "start ") + c.clientId;
+  }
+}
+
+// ---------------------------------------------------------------- running
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const visible = new Set();
+const watch = new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? visible.add(e.target) : visible.delete(e.target)), { threshold: 0.2 });
+const pictures = [...document.querySelectorAll("canvas[data-scene]")];
+const simCanvas = document.getElementById("sim");
+[...pictures, simCanvas].forEach(c => watch.observe(c));
+function paint(c, draw, f) { const g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height); draw(g, f); }
+
+let frameNo = 0, speed = 4, running = !still, last = performance.now();
+reset();
+pictures.forEach(c => paint(c, SCENES[c.dataset.scene], 5));       // one frame for those who want no motion
+paint(simCanvas, drawSim, 0); readout();
+
+setInterval(() => {
+  const now = performance.now(), dt = Math.min(0.5, (now - last) / 1000); last = now;
+  if (still && !running) return;
+  frameNo++;
+  if (!still) for (const c of pictures) if (visible.has(c)) paint(c, SCENES[c.dataset.scene], frameNo);
+  if (running && visible.has(simCanvas)) {
+    let left = dt * speed; while (left > 0) { step(Math.min(0.1, left)); left -= 0.1; }
+    paint(simCanvas, drawSim, frameNo); readout();
+  }
+}, 160);
+
+document.getElementById("play").addEventListener("click", e => { running = !running; e.target.setAttribute("aria-pressed", running); e.target.textContent = running ? "run" : "paused"; });
+document.getElementById("speed").addEventListener("click", e => { speed = { 1: 4, 4: 12, 12: 1 }[speed]; e.target.textContent = "speed ×" + speed; });
+document.getElementById("reset").addEventListener("click", () => { reset(); paint(simCanvas, drawSim, frameNo); readout(); });
+if (still) { const p = document.getElementById("play"); p.setAttribute("aria-pressed", false); p.textContent = "paused"; }
+for (const b of document.querySelectorAll("button[data-client]")) b.addEventListener("click", () => { toggle(+b.dataset.client); paint(simCanvas, drawSim, frameNo); readout(); });
+
+// ---------------------------------------------------------------- slides
+const slides = [...document.querySelectorAll(".slide")];
+const current = () => { const y = scrollY + innerHeight / 2; let i = slides.findIndex(s => s.offsetTop + s.offsetHeight > y); return i < 0 ? slides.length - 1 : i; };
+const go = i => slides[Math.max(0, Math.min(slides.length - 1, i))].scrollIntoView({ behavior: still ? "auto" : "smooth" });
+const pos = document.getElementById("pos");
+const mark = () => { pos.textContent = (current() + 1) + " / " + slides.length; };
+addEventListener("scroll", mark, { passive: true }); mark();
+document.getElementById("prev").addEventListener("click", () => go(current() - 1));
+document.getElementById("next").addEventListener("click", () => go(current() + 1));
+addEventListener("keydown", e => {
+  if (e.target.closest("button, a, input") && (e.key === " " || e.key === "Enter")) return;
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(current() + 1); }
+  else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); go(current() - 1); }
+  else if (e.key === "Home") { e.preventDefault(); go(0); }
+  else if (e.key === "End") { e.preventDefault(); go(slides.length - 1); }
+});
+</script>
+</body>
+</html>
