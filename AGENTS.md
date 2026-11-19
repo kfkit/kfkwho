@@ -18,7 +18,7 @@ mechanism applied to other operations. Read every issue in that light. The map:
 | `jmx-exporter/` | Prometheus JMX Exporter rules |
 | `grafana/` | the dashboard |
 | `test/e2e/` | the stand: a broker with the jar, an exporter, Prometheus, Grafana, traffic |
-| `docs/` | install, configuration, metrics reference |
+| `docs/` | install, configuration, metrics reference; `releasing.md`: a release, from the tag to Maven Central; `provenance/`: how to check a released jar |
 | `claude-plugin/`, `.claude-plugin/marketplace.json` | a Claude Code plugin with one skill, for people who adopt kfkwho, not for work on this repository. It has no `version`, so every commit reaches those who installed it; the skill changes in the same PR as the guide it points at |
 | `docs/index.html` | "How kfkwho works", the page GitHub Pages serves at kfkit.dev/kfkwho: one static file, no build step, nothing loaded from elsewhere, no version numbers; its demo is a model, not the code |
 
@@ -86,6 +86,14 @@ mechanism applied to other operations. Read every issue in that light. The map:
   KIP-877 `PluginMetrics` is a later, optional second reporter.
 - Java 17 (the broker's floor), Gradle with the wrapper, no Kotlin, no Lombok.
 - The jar has no runtime dependencies. Kafka classes are `compileOnly`.
+- Maven Central gets the release's jar. From 0.1.1 the maintainer uploads,
+  through the Central Portal, the jar of the GitHub release, byte for byte,
+  as `dev.kfkit:kfkwho`, with the POM, sources and javadoc built from the
+  tag, each signed with the OpenPGP key `A4B825D253DB40AB` (on
+  keyserver.ubuntu.com). No workflow publishes, and no secret for it is in
+  GitHub. Gradle's module metadata is not published: it would describe a jar
+  built elsewhere. The POM names no dependency. What is published cannot be
+  renamed or replaced. The steps are in `docs/releasing.md`.
 - Issues are the unit of work. Acceptance criteria are numbered `AC1…ACn`; the
   PR maps each to a test or an explicit "not covered, because".
 
