@@ -59,7 +59,7 @@ Put the jar, the agent and the rules in the image, or mount them:
 
 ```dockerfile
 FROM apache/kafka:4.1.2
-COPY kfkwho-0.1.0.jar /opt/kfkwho/kfkwho.jar
+COPY kfkwho-0.1.1.jar /opt/kfkwho/kfkwho.jar
 COPY jmx_prometheus_javaagent-1.0.1.jar /opt/kfkwho/jmx_prometheus_javaagent.jar
 COPY jmx-exporter/kfkwho.yml /opt/kfkwho/kfkwho.yml
 ```
@@ -87,7 +87,7 @@ port 9404 to Prometheus.
 On every node:
 
 ```bash
-cp kfkwho-0.1.0.jar "$KAFKA_HOME/libs/"
+cp kfkwho-0.1.1.jar "$KAFKA_HOME/libs/"
 cat >> "$KAFKA_HOME/config/server.properties" <<'PROPERTIES'
 authorizer.class.name=dev.kfkit.kfkwho.MeteredStandardAuthorizer
 super.users=User:admin
@@ -111,7 +111,7 @@ one; the operator configures the authorizer and the exporter.
 ```dockerfile
 FROM quay.io/strimzi/kafka:<strimzi-version>-kafka-<kafka-version>
 USER root:root
-COPY kfkwho-0.1.0.jar /opt/kafka/libs/
+COPY kfkwho-0.1.1.jar /opt/kafka/libs/
 USER 1001
 ```
 
