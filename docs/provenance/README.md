@@ -9,8 +9,8 @@ attached to. The commit dates, the signatures on the tags and the cosign
 signatures on the jars, logged in Rekor, are the earlier evidence; the proof
 does not depend on any of them, nor on GitHub.
 
-The first release, v0.1.0, is in the file; there is no proof yet. The
-maintainer adds it, as below.
+The first release, v0.1.0, and the current one, v0.1.1, are in the file;
+there is no proof yet. The maintainer adds it, as below.
 
 ## Adding a release
 
