@@ -5,6 +5,8 @@ is 0 and breaking changes are listed here instead of bumping it.
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-19
+
 ### Added
 
 - The jar of each release is on Maven Central as `dev.kfkit:kfkwho`, from

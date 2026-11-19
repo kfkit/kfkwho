@@ -5,7 +5,7 @@ broker's `StandardAuthorizer` that publishes JMX metrics per principal, client
 id, topic, operation and request type, with Prometheus JMX Exporter rules to
 read them.
 
-> Status: 0.1.0, the first release. CI runs the jar as the authorizer of real
+> Status: 0.1.1. CI runs the jar as the authorizer of real
 > brokers on every supported release; nothing has run on a production cluster
 > yet. Until 1.0 a setting or a metric may still be renamed, and every such
 > change is listed in the [changelog](CHANGELOG.md).
