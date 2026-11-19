@@ -59,3 +59,25 @@ git rev-parse vX.Y.Z vX.Y.Z^{commit}
 git archive --format=tar vX.Y.Z | shasum -a 256
 shasum -a 256 kfkwho-X.Y.Z.jar
 ```
+
+## From Maven Central
+
+From 0.1.1 the jar of each release is also on Maven Central as
+`dev.kfkit:kfkwho`, the same file byte for byte: the SHA-256 of the release
+checks it, and so does the cosign signature, with the commands of
+[Installation](../install.md#before-you-start). Every file there, the POM,
+sources and javadoc included, is also signed with the OpenPGP key
+`A4B825D253DB40AB`, "kfkit releases", which is on keyserver.ubuntu.com:
+
+```bash
+X=X.Y.Z
+base="https://repo1.maven.org/maven2/dev/kfkit/kfkwho/$X"
+curl -fsSLO "$base/kfkwho-$X.jar" -O "$base/kfkwho-$X.jar.asc"
+gpg --keyserver keyserver.ubuntu.com --recv-keys A4B825D253DB40AB
+gpg --verify "kfkwho-$X.jar.asc" "kfkwho-$X.jar"
+```
+
+`gpg` prints `Good signature from "kfkit releases"`.
+
+The maintainer uploads these by hand after the GitHub release; what goes up
+and how it is built is in [Releasing](../releasing.md#maven-central).

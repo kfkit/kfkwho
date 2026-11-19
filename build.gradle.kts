@@ -1,6 +1,7 @@
 plugins {
     java
     `jvm-test-suite`
+    `maven-publish`
     id("me.champeau.jmh") version "0.7.4"
 }
 
@@ -28,6 +29,9 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    // What Maven Central asks for next to the jar.
+    withSourcesJar()
+    withJavadocJar()
 }
 
 repositories {
@@ -125,6 +129,67 @@ tasks.jar {
             "Implementation-Vendor" to "kfkit",
         )
     }
+}
+
+// A wrong doc comment fails the build, as a compiler warning does; a missing
+// one does not.
+tasks.javadoc {
+    (options as StandardJavadocDocletOptions).apply {
+        encoding = "UTF-8"
+        addBooleanOption("Xdoclint:all,-missing", true)
+        addBooleanOption("Werror", true)
+    }
+}
+
+// ./gradlew publishToMavenLocal -Pversion=X.Y.Z: the jar, the sources, the
+// javadoc and a POM with what Maven Central requires. Nothing here publishes
+// to Central; the maintainer uploads, see docs/releasing.md. The POM names no
+// dependency, as the jar has none: the Kafka classes are compileOnly, the
+// broker's, and what the tests and the benchmarks use is not part of what is
+// published.
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            pom {
+                name = "kfkwho"
+                description = "Who accesses what on an Apache Kafka cluster: the broker's " +
+                    "StandardAuthorizer plus JMX metrics per principal, client id, resource and operation."
+                url = "https://github.com/kfkit/kfkwho"
+                licenses {
+                    license {
+                        name = "Apache-2.0"
+                        url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+                        distribution = "repo"
+                    }
+                }
+                developers {
+                    developer {
+                        id = "iabramov"
+                        name = "Ivan Abramov"
+                        url = "https://github.com/iabramov"
+                    }
+                }
+                scm {
+                    url = "https://github.com/kfkit/kfkwho"
+                    connection = "scm:git:https://github.com/kfkit/kfkwho.git"
+                    developerConnection = "scm:git:ssh://git@github.com/kfkit/kfkwho.git"
+                }
+                issueManagement {
+                    system = "GitHub"
+                    url = "https://github.com/kfkit/kfkwho/issues"
+                }
+            }
+        }
+    }
+}
+
+// Maven Central gets the jar of the GitHub release, the one the release
+// workflow built and signed, with this POM, the sources and the javadoc next
+// to it. Gradle's module metadata would name the size and hashes of a jar
+// built here instead, so it is not published; the POM is all there is.
+tasks.withType<GenerateModuleMetadata>().configureEach {
+    enabled = false
 }
 
 // The hot path, measured: ./gradlew jmh. Not part of build; check only

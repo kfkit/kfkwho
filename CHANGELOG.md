@@ -5,6 +5,13 @@ is 0 and breaking changes are listed here instead of bumping it.
 
 ## Unreleased
 
+### Added
+
+- The jar of each release is on Maven Central as `dev.kfkit:kfkwho`, from
+  0.1.1: the same file as on the releases page, with its POM, sources and
+  javadoc, each signed with the OpenPGP key `A4B825D253DB40AB`. How to check
+  it is in [Provenance](docs/provenance/README.md#from-maven-central).
+
 ## 0.1.0 - 2026-11-18
 
 ### Breaking
