@@ -17,12 +17,12 @@ been run by CI.
 ## Before you start
 
 - **Kafka 4.1 or later, KRaft.** See [Compatibility](../README.md#compatibility).
-- **The jar.** There is no release yet; build it with `./gradlew jar`, which
-  writes `build/libs/kfkwho-<version>.jar`. It has no dependencies of its
-  own. Releases will publish `kfkwho-X.Y.Z.jar` on the
-  [GitHub releases](https://github.com/kfkit/kfkwho/releases) page with its
-  SHA-256 and a cosign signature; check both before the jar goes on a
-  broker:
+- **The jar.** `kfkwho-X.Y.Z.jar` from the
+  [GitHub releases](https://github.com/kfkit/kfkwho/releases) page, with its
+  SHA-256 and a cosign signature. It has no dependencies of its own.
+  `./gradlew jar` builds the same jar from the sources, as
+  `build/libs/kfkwho-<version>.jar`. Check the downloaded one before it goes
+  on a broker:
 
   ```bash
   sha256sum -c kfkwho-X.Y.Z.jar.sha256
