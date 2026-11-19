@@ -20,7 +20,7 @@ mechanism applied to other operations. Read every issue in that light. The map:
 | `test/e2e/` | the stand: a broker with the jar, an exporter, Prometheus, Grafana, traffic |
 | `docs/` | install, configuration, metrics reference; `releasing.md`: a release, from the tag to Maven Central; `provenance/`: how to check a released jar |
 | `claude-plugin/`, `.claude-plugin/marketplace.json` | a Claude Code plugin with one skill, for people who adopt kfkwho, not for work on this repository. It has no `version`, so every commit reaches those who installed it; the skill changes in the same PR as the guide it points at |
-| `docs/index.html` | "How kfkwho works", the page GitHub Pages serves at kfkit.dev/kfkwho: one static file, no build step, nothing loaded from elsewhere, no version numbers; its demo is a model, not the code |
+| `docs/index.html` | "How kfkwho works", the page GitHub Pages serves at kfkit.dev/kfkwho: one static file, no build step, nothing loaded from elsewhere, no version numbers, dark only; its demo is a model, not the code |
 
 ## Forbidden
 
