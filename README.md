@@ -71,6 +71,23 @@ image and Strimzi. Settings are in [Configuration](docs/config.md), the
 MBeans and Prometheus series in [Metrics](docs/metrics.md). Publishing the
 same metrics from another authorizer is in [Embedding](docs/embedding.md).
 
+### With Claude Code
+
+The repository carries a skill for whoever adopts kfkwho with
+[Claude Code](https://claude.com/claude-code): what to find out before
+installing, what changes on a cluster that ran without an authorizer, what
+the settings trade, how to read the series, and what not to do, each step
+pointing at the section of the [docs](docs/) it rests on.
+
+```
+/plugin marketplace add kfkit/kfkwho
+/plugin install kfkwho@kfkwho
+```
+
+Or copy `claude-plugin/skills/kfkwho` into `.claude/skills/` of your own
+repository. The skill is [one file](claude-plugin/skills/kfkwho/SKILL.md);
+read it before you trust it.
+
 ## Compatibility
 
 Compiled against Kafka 4.4, Java 17. Kafka 4.1 and later is the target

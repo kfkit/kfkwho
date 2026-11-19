@@ -1,0 +1,10 @@
+{
+  "name": "kfkwho",
+  "description": "A skill for adopting and operating kfkwho: what to find out before installing, what changes on a cluster that ran without an authorizer, what the settings trade, how to read the series, what not to do.",
+  "homepage": "https://kfkit.dev/kfkwho/",
+  "repository": "https://github.com/kfkit/kfkwho",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Ivan Abramov"
+  }
+}
