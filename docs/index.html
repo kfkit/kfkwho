@@ -376,7 +376,8 @@ kfkwho:type=client,principal=…,client-id=…,listener=…,security-protocol=�
 KAFKA_AUTHORIZER_CLASS_NAME=dev.kfkit.kfkwho.MeteredStandardAuthorizer
 KAFKA_SUPER_USERS=User:admin
 KAFKA_OPTS=-javaagent:/opt/kfkwho/jmx_prometheus_javaagent.jar=9404:/opt/kfkwho/kfkwho.yml</code></pre>
-  <p>The jar is on the releases page, with its SHA-256 and a cosign signature. A cluster that
+  <p>The jar is on the releases page, with its SHA-256 and a cosign signature, and the same
+     jar is on Maven Central as <code>dev.kfkit:kfkwho</code>. A cluster that
      ran without an authorizer starts enforcing ACLs: read Installation first.</p>
   <ul>
     <li><a href="https://github.com/kfkit/kfkwho">Source on GitHub</a></li>
@@ -384,7 +385,8 @@ KAFKA_OPTS=-javaagent:/opt/kfkwho/jmx_prometheus_javaagent.jar=9404:/opt/kfkwho/
     <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/config.md">Configuration</a></li>
     <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/metrics.md">Metrics: MBeans, tags, Prometheus series</a></li>
     <li><a href="https://github.com/kfkit/kfkwho/blob/main/docs/embedding.md">Embedding: the same metrics from another authorizer</a></li>
-    <li><a href="https://github.com/kfkit/kfkwho/releases">Releases</a></li>
+    <li><a href="https://github.com/kfkit/kfkwho/releases">Releases</a>,
+        <a href="https://central.sonatype.com/artifact/dev.kfkit/kfkwho">Maven Central</a></li>
     <li><a href="https://kfkit.dev/">kfkit</a></li>
   </ul>
   <p>With <a href="https://claude.com/product/claude-code">Claude Code</a>, the repository
