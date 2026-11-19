@@ -19,6 +19,7 @@ mechanism applied to other operations. Read every issue in that light. The map:
 | `grafana/` | the dashboard |
 | `test/e2e/` | the stand: a broker with the jar, an exporter, Prometheus, Grafana, traffic |
 | `docs/` | install, configuration, metrics reference |
+| `claude-plugin/`, `.claude-plugin/marketplace.json` | a Claude Code plugin with one skill, for people who adopt kfkwho, not for work on this repository. It has no `version`, so every commit reaches those who installed it; the skill changes in the same PR as the guide it points at |
 
 ## Forbidden
 

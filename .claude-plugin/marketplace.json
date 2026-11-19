@@ -1,0 +1,14 @@
+{
+  "name": "kfkwho",
+  "description": "kfkwho for Claude Code: a skill for adopting and operating it.",
+  "owner": {
+    "name": "kfkit"
+  },
+  "plugins": [
+    {
+      "name": "kfkwho",
+      "source": "./claude-plugin",
+      "description": "A skill for adopting and operating kfkwho: what to find out before installing, what changes on a cluster that ran without an authorizer, what the settings trade, how to read the series, what not to do."
+    }
+  ]
+}
